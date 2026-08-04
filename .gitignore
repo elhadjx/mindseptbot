@@ -1,0 +1,12 @@
+node_modules/
+admin/node_modules/
+admin/dist/
+
+# Every .env variant, including stray names like ".env " and ".env.local".
+.env*
+!.env.example
+
+# whatsapp-web.js scratch dirs. The real session lives in Mongo via RemoteAuth,
+# but these hold a copy on disk and must never be committed.
+.wwebjs_auth/
+.wwebjs_cache/

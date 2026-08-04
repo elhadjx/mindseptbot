@@ -1,0 +1,11 @@
+node_modules
+admin/node_modules
+admin/dist
+.env
+.env.*
+!.env.example
+.git
+.claude
+.wwebjs_auth
+.wwebjs_cache
+README.md

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#f6f2ea" />
+    <title>Mindsept · Door access</title>
+    <script>
+      // Set the theme before first paint so a dark-mode reload doesn't flash bone.
+      document.documentElement.dataset.theme = localStorage.getItem('mindsept-theme') || 'light';
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

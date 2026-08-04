@@ -1,0 +1,401 @@
+@import './fonts.css';
+@import './tokens.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--clr-bg);
+  color: var(--clr-text);
+  font-family: var(--font-body);
+  font-size: var(--fs-md);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Grain. Nothing in nature is a flat fill, and a few percent of noise is what
+ * keeps the large bone-coloured areas from looking like dead plastic.
+ */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: var(--grain-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+
+h1 {
+  font-size: var(--fs-xl);
+}
+h2 {
+  font-size: var(--fs-lg);
+}
+
+a {
+  color: var(--clr-primary);
+}
+
+/* --- Buttons: pills, always ------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-5);
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: var(--clr-primary);
+  color: var(--clr-on-primary);
+  font: inherit;
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition: transform var(--dur) var(--ease-organic),
+    background var(--dur) var(--ease-settle), box-shadow var(--dur) var(--ease-settle);
+  box-shadow: var(--sh-1);
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--clr-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--sh-2);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn--ghost {
+  background: transparent;
+  color: var(--clr-text);
+  border-color: var(--clr-border-strong);
+  box-shadow: none;
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: var(--clr-surface-sunken);
+  color: var(--clr-text);
+}
+
+.btn--danger {
+  background: var(--clr-denied);
+  color: #fdf6f1;
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: var(--clr-denied);
+  filter: brightness(0.93);
+}
+
+.btn--sm {
+  padding: var(--sp-2) var(--sp-4);
+  font-size: var(--fs-xs);
+}
+
+/* --- Cards -------------------------------------------------------------- */
+.card {
+  background: var(--clr-surface);
+  border: 1px solid var(--clr-border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-1);
+  padding: var(--sp-5);
+}
+
+.card__title {
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  margin: 0 0 var(--sp-1);
+}
+
+.card__hint {
+  color: var(--clr-text-soft);
+  font-size: var(--fs-sm);
+  margin: 0 0 var(--sp-4);
+}
+
+/* --- Fields ------------------------------------------------------------- */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+
+.field__label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--clr-text-soft);
+}
+
+.input,
+.select {
+  width: 100%;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--clr-border-strong);
+  border-radius: var(--r-md);
+  background: var(--clr-surface-sunken);
+  color: var(--clr-text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  box-shadow: var(--sh-inset);
+  transition: border-color var(--dur) var(--ease-settle), box-shadow var(--dur) var(--ease-settle);
+}
+
+.input:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--clr-primary);
+  box-shadow: var(--ring);
+}
+
+/* --- Seed dot: soft status marker, not a hard badge --------------------- */
+.seed {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: var(--r-blob);
+  background: var(--clr-text-soft);
+  flex: none;
+}
+
+.seed--granted {
+  background: var(--clr-granted);
+}
+.seed--denied {
+  background: var(--clr-denied);
+}
+.seed--pending {
+  background: var(--clr-pending);
+}
+
+.seed--pulsing {
+  animation: breathe 2.4s var(--ease-settle) infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.25);
+    opacity: 0.65;
+  }
+}
+
+/* --- Pills / chips ------------------------------------------------------ */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-3);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  background: var(--clr-surface-sunken);
+  color: var(--clr-text-soft);
+  border: 1px solid var(--clr-border);
+}
+
+.chip--granted {
+  background: var(--clr-granted-wash);
+  color: var(--clr-granted);
+  border-color: transparent;
+}
+.chip--denied {
+  background: var(--clr-denied-wash);
+  color: var(--clr-denied);
+  border-color: transparent;
+}
+.chip--error {
+  background: var(--clr-pending-wash);
+  color: var(--clr-pending);
+  border-color: transparent;
+}
+
+.chip--button {
+  cursor: pointer;
+  transition: transform var(--dur) var(--ease-organic), background var(--dur) var(--ease-settle);
+}
+.chip--button:hover {
+  transform: translateY(-1px);
+}
+.chip--active {
+  background: var(--clr-primary);
+  color: var(--clr-on-primary);
+  border-color: transparent;
+}
+
+/* --- Toggle: a seed sliding in a pod ------------------------------------ */
+.toggle {
+  position: relative;
+  display: inline-block;
+  width: 2.75rem;
+  height: 1.5rem;
+  flex: none;
+}
+
+.toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle__track {
+  position: absolute;
+  inset: 0;
+  background: var(--clr-border-strong);
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease-settle);
+}
+
+.toggle__track::before {
+  content: '';
+  position: absolute;
+  width: 1.1rem;
+  height: 1.1rem;
+  left: 0.2rem;
+  top: 0.2rem;
+  background: var(--clr-linen);
+  border-radius: var(--r-blob);
+  box-shadow: var(--sh-1);
+  transition: transform var(--dur) var(--ease-organic), border-radius var(--dur) var(--ease-organic);
+}
+
+.toggle input:checked + .toggle__track {
+  background: var(--clr-primary);
+}
+
+.toggle input:checked + .toggle__track::before {
+  transform: translateX(1.25rem);
+  border-radius: var(--r-blob-alt);
+}
+
+.toggle input:focus-visible + .toggle__track {
+  box-shadow: var(--ring);
+}
+
+/* --- Tables ------------------------------------------------------------- */
+.table-wrap {
+  overflow-x: auto;
+  border-radius: var(--r-md);
+  border: 1px solid var(--clr-border);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+  background: var(--clr-surface);
+}
+
+.table th {
+  text-align: left;
+  font-weight: 600;
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--clr-text-soft);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--clr-surface-sunken);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--clr-border);
+  vertical-align: middle;
+}
+
+.table tr:hover td {
+  background: var(--clr-surface-sunken);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--clr-text-soft);
+}
+
+.muted {
+  color: var(--clr-text-soft);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.spread {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.empty {
+  padding: var(--sp-7) var(--sp-4);
+  text-align: center;
+  color: var(--clr-text-soft);
+  font-size: var(--fs-sm);
+}
+
+.banner {
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
+  background: var(--clr-denied-wash);
+  color: var(--clr-denied);
+}
+
+.banner--ok {
+  background: var(--clr-granted-wash);
+  color: var(--clr-granted);
+}

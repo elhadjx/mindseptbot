@@ -1,0 +1,139 @@
+/*
+ * Mindsept organic design system
+ * ------------------------------
+ * The single source of truth for the panel's look. Rules of the system:
+ *
+ *   1. No pure white, no pure black. Every neutral is warmed toward clay.
+ *   2. Nothing is a perfect rectangle - radii are generous, and decorative
+ *      shapes use asymmetric "blob" radii.
+ *   3. Shadows are soft, layered and warm-tinted, never neutral black.
+ *   4. Colour carries meaning: moss = granted/connected, terracotta =
+ *      denied/destructive, clay = pending/warning.
+ *   5. Motion overshoots slightly, the way physical things settle.
+ *
+ * Components must consume these variables. If you find yourself typing a hex
+ * value anywhere else, add a token here instead.
+ */
+
+:root {
+  /* --- Warm earth neutrals --------------------------------------------- */
+  --clr-bone: #f6f2ea;        /* page background */
+  --clr-linen: #fffcf6;       /* raised surfaces */
+  --clr-sand: #e8e0d2;        /* borders, dividers */
+  --clr-sand-deep: #d6cbb7;   /* hover borders */
+  --clr-ink: #33302a;         /* primary text */
+  --clr-ink-soft: #6b6459;    /* secondary text */
+  --clr-bark: #2b2621;        /* dark-mode ground */
+
+  /* --- Living accents --------------------------------------------------- */
+  --clr-moss: #4e6b52;
+  --clr-moss-deep: #3a5240;
+  --clr-moss-wash: #e6ede4;
+  --clr-terracotta: #c0673f;
+  --clr-terracotta-wash: #f6e4da;
+  --clr-clay: #d8a47f;
+  --clr-clay-wash: #f9ecdf;
+  --clr-sage: #a8b9a0;
+
+  /* --- Semantic aliases -------------------------------------------------- */
+  --clr-bg: var(--clr-bone);
+  --clr-surface: var(--clr-linen);
+  --clr-surface-sunken: #f1ece2;
+  --clr-border: var(--clr-sand);
+  --clr-border-strong: var(--clr-sand-deep);
+  --clr-text: var(--clr-ink);
+  --clr-text-soft: var(--clr-ink-soft);
+  --clr-primary: var(--clr-moss);
+  --clr-primary-hover: var(--clr-moss-deep);
+  --clr-on-primary: #fbf9f4;
+
+  --clr-granted: var(--clr-moss);
+  --clr-granted-wash: var(--clr-moss-wash);
+  --clr-denied: var(--clr-terracotta);
+  --clr-denied-wash: var(--clr-terracotta-wash);
+  --clr-pending: #a97c46;
+  --clr-pending-wash: var(--clr-clay-wash);
+
+  /* --- Pebble radii ------------------------------------------------------ */
+  --r-sm: 0.625rem;
+  --r-md: 1rem;
+  --r-lg: 1.75rem;
+  --r-pill: 999px;
+  --r-blob: 46% 54% 52% 48% / 50% 46% 54% 50%;
+  --r-blob-alt: 58% 42% 38% 62% / 44% 56% 44% 56%;
+
+  /* --- Soft, warm-tinted shadows ---------------------------------------- */
+  --sh-1: 0 1px 2px rgba(64, 52, 38, 0.06), 0 2px 8px rgba(64, 52, 38, 0.05);
+  --sh-2: 0 2px 6px rgba(64, 52, 38, 0.07), 0 12px 28px rgba(64, 52, 38, 0.08);
+  --sh-inset: inset 0 1px 2px rgba(64, 52, 38, 0.06);
+  --ring: 0 0 0 3px rgba(78, 107, 82, 0.22);
+
+  /* --- Type: humanist serif display + warm sans body -------------------- */
+  --font-display: 'Fraunces', 'Iowan Old Style', Georgia, serif;
+  --font-body: 'Public Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.875rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.25rem;
+  --fs-xl: 1.75rem;
+  --fs-2xl: 2.5rem;
+
+  /* --- Space: a 4px scale ------------------------------------------------ */
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+  --sp-7: 3rem;
+
+  /* --- Motion: growth curves, slight overshoot -------------------------- */
+  --ease-organic: cubic-bezier(0.34, 1.24, 0.38, 1);
+  --ease-settle: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --dur: 240ms;
+  --dur-slow: 420ms;
+
+  --grain-opacity: 0.035;
+  --layout-max: 1180px;
+}
+
+/*
+ * Dark mode inverts the neutrals into bark and keeps the accents, which is what
+ * stops it reading as "the same UI, but grey".
+ */
+:root[data-theme='dark'] {
+  --clr-bg: #1c1a17;
+  --clr-surface: #262320;
+  --clr-surface-sunken: #201d1a;
+  --clr-border: #3a352f;
+  --clr-border-strong: #4c453c;
+  --clr-text: #ece5d9;
+  --clr-text-soft: #a49a8b;
+
+  --clr-primary: #7d9c7f;
+  --clr-primary-hover: #93b094;
+  --clr-on-primary: #16201a;
+
+  --clr-granted: #8bb08d;
+  --clr-granted-wash: #29332a;
+  --clr-denied: #dd8a63;
+  --clr-denied-wash: #38271f;
+  --clr-pending: #d8a47f;
+  --clr-pending-wash: #352a20;
+
+  --sh-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.24);
+  --sh-2: 0 2px 6px rgba(0, 0, 0, 0.32), 0 12px 28px rgba(0, 0, 0, 0.36);
+  --sh-inset: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+  --ring: 0 0 0 3px rgba(125, 156, 127, 0.3);
+
+  --grain-opacity: 0.05;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur: 1ms;
+    --dur-slow: 1ms;
+  }
+}

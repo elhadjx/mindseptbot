@@ -148,7 +148,7 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
           </div>
         )}
 
-        {groups && (
+        {groups?.length > 0 && (
           <Field label="Add a group" hint="Only groups the bot's number is a member of appear here.">
             <select
               className="select"
@@ -170,13 +170,17 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
           </Field>
         )}
 
-        {!groups && (
+        {/* Also shown when the list came back empty, so an empty dropdown is
+            never a dead end. */}
+        {!groups?.length && (
           <Field
-            label="Or paste a group id"
+            label={groups ? 'Add a group by id' : 'Or paste a group id'}
             hint={
-              waReady
-                ? 'Ends with @g.us. The list above is easier — hit Refresh.'
-                : 'The group list appears automatically once WhatsApp is connected.'
+              groups
+                ? 'No groups found for this number. Paste an id ending in @g.us, or send a message in the group and hit Refresh.'
+                : waReady
+                  ? 'Ends with @g.us. The list above is easier — hit Refresh.'
+                  : 'The group list appears automatically once WhatsApp is connected.'
             }
           >
             <div className="row">

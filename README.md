@@ -88,7 +88,21 @@ These are all covered by `npm test` — don't regress them:
   and forcing a re-scan. `installCrashGuards()` in `src/index.js` logs and
   keeps the door working instead.
 
-## Session persistence: the traps
+## whatsapp-web.js sharp edges
+
+Everything below cost real debugging time. The library does a lot of its work
+inside WhatsApp's own minified bundle, so failures often arrive as a
+single-letter message like `Error: r` — always log the full error server-side.
+
+**Don't use `client.getChats()` to list groups.** Its injected helper builds a
+full model for *every* chat in the account, and for each group that includes an
+`await groupMetadata.update()` network round-trip plus LID migration of every
+participant — all inside one `Promise.all`. A single unhappy chat rejects the
+entire listing. `src/whatsapp/groups.js` reads id/name/size straight off the
+chat collection instead, tolerates per-chat failures, and keeps `getChats()`
+only as a fallback. Covered by `test/groups.test.js`.
+
+### Session persistence: the traps
 
 `RemoteAuth` is less forgiving than it looks, and all of these cost real time:
 

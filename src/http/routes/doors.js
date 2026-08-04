@@ -34,10 +34,13 @@ router.post('/:door/open', async (req, res) => {
   }
 
   try {
-    await triggerDoor(door, { pulseMs: settings.relayPulseMs });
+    const { simulated } = await triggerDoor(door, {
+      pulseMs: settings.relayPulseMs,
+      simulate: settings.testMode,
+    });
     const durationMs = Date.now() - startedAt;
-    await AuditLog.create({ ...base, decision: 'granted', durationMs });
-    return res.json({ ok: true, door, durationMs });
+    await AuditLog.create({ ...base, decision: 'granted', durationMs, simulated });
+    return res.json({ ok: true, door, durationMs, simulated });
   } catch (err) {
     await AuditLog.create({
       ...base,

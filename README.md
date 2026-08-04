@@ -66,6 +66,21 @@ Practical consequence: **enroll members from the Members screen's group
 participant list**, not by typing phone numbers. That captures the exact `waId`
 the bot will see.
 
+## Test mode
+
+Settings → Test mode runs the entire pipeline — group scope, whitelist, rate
+limits, replies, audit log — but never sends the Tuya command. Use it to try the
+bot out without opening a real door onto the street.
+
+The check lives inside `triggerDoor()` (`src/doors/door-service.js`), not in its
+callers, so there is no path — WhatsApp command or panel button — that can open
+the door while it is on.
+
+When it's on: senders get 🧪 instead of ✅ and a reply saying the door did not
+open, audit rows are flagged `simulated` and badged in the Activity table, and
+the panel shows a banner on every page. All of that is deliberate — a test mode
+that looks like success is worse than no test mode.
+
 ## Safety properties worth preserving
 
 These are all covered by `npm test` — don't regress them:
@@ -93,6 +108,11 @@ These are all covered by `npm test` — don't regress them:
 Everything below cost real debugging time. The library does a lot of its work
 inside WhatsApp's own minified bundle, so failures often arrive as a
 single-letter message like `Error: r` — always log the full error server-side.
+
+**Don't use `client.getChatById()` to read a group either.** Same underlying
+helper (`getChatModel`), same failure. `listParticipants()` in
+`src/whatsapp/groups.js` reads cached metadata, only refreshes when nothing is
+cached, and never lets a failed refresh discard what it already had.
 
 **Don't use `client.getChats()` to list groups.** Its injected helper builds a
 full model for *every* chat in the account, and for each group that includes an

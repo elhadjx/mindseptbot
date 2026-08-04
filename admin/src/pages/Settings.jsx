@@ -207,6 +207,27 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
         )}
       </Card>
 
+      <Card
+        title="Test mode"
+        hint="Runs everything — whitelist, limits, replies, audit log — but never sends the command to the door."
+      >
+        <div className="spread">
+          <div>
+            <div style={{ fontWeight: 600 }}>
+              {draft.testMode ? 'On — the door will not open' : 'Off — commands open the real door'}
+            </div>
+            <div className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
+              Members get a 🧪 reaction instead of ✅, and the log marks these entries as simulated.
+            </div>
+          </div>
+          <Toggle
+            checked={Boolean(draft.testMode)}
+            label="Test mode"
+            onChange={(v) => set('testMode', v)}
+          />
+        </div>
+      </Card>
+
       <Card title="Commands" hint="A message counts as a command when it starts with one of these words.">
         <Field label="Keywords" hint="Comma separated. Case and accents are ignored.">
           <input

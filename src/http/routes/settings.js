@@ -4,6 +4,7 @@ const Settings = require('../../db/models/Settings');
 const router = express.Router();
 
 const EDITABLE = [
+  'testMode',
   'commandKeywords',
   'defaultDoor',
   'replyMode',

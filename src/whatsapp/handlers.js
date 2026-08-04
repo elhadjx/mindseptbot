@@ -11,6 +11,9 @@ const REACTIONS = {
   granted: '✅',
   denied: '⛔',
   error: '⚠️',
+  // Distinct on purpose: someone standing at the door needs to know at a glance
+  // that nothing actually opened.
+  simulated: '🧪',
 };
 
 const MESSAGES = {
@@ -19,6 +22,7 @@ const MESSAGES = {
   denied_door_disabled: 'Cette porte est désactivée pour le moment.',
   denied_unknown_door: "Je ne connais pas cette porte.",
   granted: 'Ouvert 🚪',
+  simulated: "Mode test : la porte n'a PAS été ouverte.",
   error: "Ça n'a pas marché, préviens un admin.",
 };
 
@@ -116,16 +120,27 @@ async function handleMessage(client, msg) {
   // 6. Open.
   const startedAt = Date.now();
   try {
-    await triggerDoor(command.door, { pulseMs: settings.relayPulseMs });
+    const { simulated } = await triggerDoor(command.door, {
+      pulseMs: settings.relayPulseMs,
+      simulate: settings.testMode,
+    });
     const durationMs = Date.now() - startedAt;
 
-    await record({ ...base, decision: 'granted', durationMs });
-    await respond(msg, settings, 'granted', MESSAGES.granted);
+    await record({ ...base, decision: 'granted', durationMs, simulated });
+    await respond(
+      msg,
+      settings,
+      simulated ? 'simulated' : 'granted',
+      simulated ? MESSAGES.simulated : MESSAGES.granted
+    );
 
     await User.updateOne({ _id: user._id }, { $set: { lastOpenedAt: new Date() } });
     bus.emit(EVENTS.DOOR_OPENED, { door: command.door, actor: identity.name || identity.waId });
 
-    console.log(`[wa] opened ${command.door} for ${user.displayName || identity.waId} in ${durationMs}ms`);
+    console.log(
+      `[wa] ${simulated ? 'SIMULATED open of' : 'opened'} ${command.door} for ` +
+        `${user.displayName || identity.waId} in ${durationMs}ms`
+    );
   } catch (err) {
     await record({
       ...base,

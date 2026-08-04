@@ -116,7 +116,16 @@ export default function Activity() {
                   {data.entries.map((entry) => (
                     <tr key={entry._id}>
                       <td style={{ whiteSpace: 'nowrap' }}>{formatDateTime(entry.at)}</td>
-                      <td><DecisionChip decision={entry.decision} /></td>
+                      <td>
+                        <div className="row" style={{ gap: 'var(--sp-2)' }}>
+                          <DecisionChip decision={entry.decision} />
+                          {entry.simulated && (
+                            <span className="chip chip--error" title="Test mode — the door did not open">
+                              🧪 test
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td>
                         <div>{entry.actorName || <span className="muted">Unknown</span>}</div>
                         <div className="mono">

@@ -8,6 +8,9 @@ const auditLogSchema = new mongoose.Schema(
     source: { type: String, enum: ['whatsapp', 'panel'], required: true },
     decision: { type: String, enum: ['granted', 'denied', 'error'], required: true, index: true },
     reason: { type: String, default: '' },
+    // True when test mode was on, i.e. the door did NOT physically open. The
+    // log would otherwise claim opens that never happened.
+    simulated: { type: Boolean, default: false },
 
     actorWaId: { type: String, default: null, index: true },
     actorPhone: { type: String, default: null },

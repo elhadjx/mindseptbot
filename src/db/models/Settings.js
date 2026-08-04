@@ -39,6 +39,11 @@ const settingsSchema = new mongoose.Schema(
 
     replyMode: { type: String, enum: ['react', 'text', 'both'], default: 'react' },
 
+    // Test mode: run the whole pipeline - scope, whitelist, rate limits, audit
+    // log - but never send the Tuya command. For trying the bot out without
+    // opening a real door onto the street.
+    testMode: { type: Boolean, default: false },
+
     // Guards against a reconnect replaying a backlog of old "open" messages
     // and firing the relay for each one.
     maxMessageAgeSec: { type: Number, default: 90 },

@@ -138,6 +138,24 @@ export default function App() {
       </aside>
 
       <main className="main">
+        {/*
+          Test mode is the one setting that makes the whole system lie about
+          what it did, so it is shown on every page rather than only where it
+          is toggled.
+        */}
+        {settings.testMode && (
+          <div className="test-banner">
+            <span aria-hidden="true">🧪</span>
+            <span>
+              <strong>Test mode is on.</strong> Commands are checked and logged, but the door
+              will not actually open.
+            </span>
+            <button className="btn btn--ghost btn--sm" onClick={() => setPage('settings')}>
+              Turn off
+            </button>
+          </div>
+        )}
+
         {page === 'connection' && <Connection state={waState} doors={doors} />}
         {page === 'members' && <Members settings={settings} />}
         {page === 'activity' && <Activity />}

@@ -7,6 +7,7 @@ const Module = require('module');
 
 const doorServicePath = path.resolve(__dirname, '../src/doors/door-service.js');
 const opens = [];
+const simulatedOpens = [];
 
 // Stub triggerDoor before anything requires it.
 const realLoad = Module._load;
@@ -22,8 +23,15 @@ Module._load = function (request, parent, isMain) {
     return {
       DOORS: { front: { label: 'Front door', deviceId: 'stub', dpCode: 'switch_1' } },
       listDoors: () => [{ key: 'front', label: 'Front door', configured: true }],
-      triggerDoor: async (key) => {
+      // Mirrors the real signature: honour `simulate` and report it back, so
+      // the test exercises the same branch production does.
+      triggerDoor: async (key, { simulate = false } = {}) => {
+        if (simulate) {
+          simulatedOpens.push(key);
+          return { simulated: true };
+        }
         opens.push(key);
+        return { simulated: false };
       },
     };
   }
@@ -204,6 +212,31 @@ async function main() {
     opens.length - beforeVariants === variants.length,
     `opened ${opens.length - beforeVariants}/${variants.length}`
   );
+
+  console.log('\n-- test mode --');
+  rateLimiter.reset();
+  settings.testMode = true;
+  await settings.save();
+  const realOpensBefore = opens.length;
+  m = makeMsg({ author: '212661111111@c.us', body: '/open' });
+  await handleMessage(client, m);
+  check('test mode does not touch the relay', opens.length === realOpensBefore);
+  check('  but the pipeline still ran', simulatedOpens.length === 1);
+  check('  reacted with the test emoji, not the granted one', m.reactions[0] === '🧪', m.reactions[0]);
+  check('  told the sender the door did not open', /pas/i.test(m.replies[0] || ''), m.replies[0]);
+  log = await AuditLog.findOne().sort({ at: -1 });
+  check('  logged as simulated', log?.simulated === true);
+  check('  and still recorded as granted', log?.decision === 'granted');
+
+  // Turning it off must take effect immediately, without a restart.
+  settings.testMode = false;
+  await settings.save();
+  rateLimiter.reset();
+  m = makeMsg({ author: '212661111111@c.us', body: '/open' });
+  await handleMessage(client, m);
+  check('turning test mode off opens for real again', opens.length === realOpensBefore + 1);
+  log = await AuditLog.findOne().sort({ at: -1 });
+  check('  and that entry is not marked simulated', log?.simulated === false);
 
   console.log('\n-- rate limiting --');
   rateLimiter.reset();

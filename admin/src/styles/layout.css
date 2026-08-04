@@ -124,6 +124,24 @@
   font-size: var(--fs-sm);
 }
 
+/* Test-mode banner. Clay rather than terracotta: this is a caution, not a
+   failure, but it must never blend into the page. */
+.test-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-md);
+  background: var(--clr-pending-wash);
+  color: var(--clr-pending);
+  border: 1px solid currentColor;
+  font-size: var(--fs-sm);
+}
+
+.test-banner > span:nth-child(2) {
+  flex: 1;
+}
+
 /* --- Login ------------------------------------------------------------- */
 .login {
   min-height: 100vh;

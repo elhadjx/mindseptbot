@@ -28,8 +28,9 @@ Phase 1: the bot, the whitelist, the audit log and the panel.
   `/v1.0/iot-03/devices/{id}/commands`), signed directly with Node's built-in
   `crypto`/`fetch` (`src/doors/tuya-cloud.js`) — deliberately not the official
   `@tuya/tuya-connector-nodejs` SDK, which pulls a vulnerable, unpatched `axios`.
-- WhatsApp session persistence uses `RemoteAuth` + `wwebjs-mongo`, so the session
-  survives Railway's ephemeral filesystem.
+- WhatsApp session persistence uses `RemoteAuth` with our own GridFS store
+  (`src/whatsapp/mongo-session-store.js`), so the session survives Railway's
+  ephemeral filesystem. See below for why this isn't `wwebjs-mongo`.
 
 ## Layout
 
@@ -81,10 +82,26 @@ These are all covered by `npm test` — don't regress them:
   pas ouvre" is chatter, not an open.
 - **Rate limits.** Per-member and global sliding windows.
 - **Deny-by-default,** and every denial is logged with a reason.
+- **The process does not exit on an unhandled rejection.** RemoteAuth backs up
+  on a `setInterval(async …)` with no catch, so one failed backup would
+  otherwise terminate the process — dropping the very session it was protecting
+  and forcing a re-scan. `installCrashGuards()` in `src/index.js` logs and
+  keeps the door working instead.
 
-## Session persistence: the two traps
+## Session persistence: the traps
 
-`RemoteAuth` is less forgiving than it looks, and both of these cost real time:
+`RemoteAuth` is less forgiving than it looks, and all of these cost real time:
+
+0. **Don't use `wwebjs-mongo`.** It is unmaintained (v1.1.0, 2022) and no longer
+   agrees with whatsapp-web.js about where the session zip is.
+   `RemoteAuth.compressSession()` writes it to
+   `path.join(dataPath, '<session>.zip')`; `wwebjs-mongo`'s `save()` reads
+   `'<session>.zip'` **relative to `process.cwd()`**. Any deployment where cwd
+   isn't `dataPath` — i.e. all of them — fails every backup with `ENOENT`, and
+   because that surfaces as an unhandled `'error'` on a ReadStream it kills the
+   process. The container restarts with no saved session, so you re-scan the QR,
+   and it repeats forever. `src/whatsapp/mongo-session-store.js` replaces it;
+   `test/session-store.test.js` covers the round-trip.
 
 1. **The session isn't saved until 60 seconds after the first scan.**
    `RemoteAuth.afterAuthReady()` hardcodes `await this.delay(60000)` before its
@@ -126,7 +143,8 @@ Then open http://localhost:3000, sign in, and:
 For panel development with hot reload, run `npm start` and `npm run dev:admin`
 in parallel; Vite proxies `/api` to port 3000.
 
-Run the authorization tests (needs a local Mongo; uses a scratch database):
+Run the tests — the session store round-trip and the authorization pipeline
+(needs a local Mongo; uses a scratch database):
 
 ```bash
 MONGODB_URI=mongodb://localhost:27017/mindsept-test npm test

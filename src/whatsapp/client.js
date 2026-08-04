@@ -1,6 +1,7 @@
 const { Client, RemoteAuth, Events } = require('whatsapp-web.js');
-const { MongoStore } = require('wwebjs-mongo');
 const QRCode = require('qrcode');
+
+const { MongoSessionStore } = require('./mongo-session-store');
 
 const { config } = require('../config');
 const { mongoose } = require('../db/mongo');
@@ -68,7 +69,9 @@ function scheduleReconnect() {
 }
 
 function buildClient() {
-  const store = new MongoStore({ mongoose });
+  // dataPath must match what RemoteAuth is given below - the store rebuilds the
+  // zip path from it, since RemoteAuth only passes a path to extract().
+  const store = new MongoSessionStore({ mongoose, dataPath: config.whatsapp.dataPath });
 
   return new Client({
     authStrategy: new RemoteAuth({
@@ -175,9 +178,10 @@ async function buildAndInitialize() {
 /**
  * Build and start the WhatsApp client.
  *
- * RemoteAuth keeps the authenticated session in MongoDB (GridFS via
- * wwebjs-mongo) rather than on disk, which is what lets this survive Railway's
- * ephemeral filesystem: `dataPath` is just scratch space RemoteAuth zips from.
+ * RemoteAuth keeps the authenticated session in MongoDB (GridFS, via our own
+ * MongoSessionStore) rather than on disk, which is what lets this survive
+ * Railway's ephemeral filesystem: `dataPath` is only scratch space RemoteAuth
+ * zips from.
  *
  * @param {(msg: import('whatsapp-web.js').Message) => Promise<void>} onMessage
  */

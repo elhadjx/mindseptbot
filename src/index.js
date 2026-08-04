@@ -5,7 +5,23 @@ const { createApp } = require('./http/app');
 const { startWhatsApp, stopWhatsApp, getClient } = require('./whatsapp/client');
 const { handleMessage } = require('./whatsapp/handlers');
 
+// RemoteAuth runs its periodic backup as `setInterval(async () => ...)` with no
+// catch of its own, so a single failed backup becomes an unhandled rejection -
+// which Node terminates the process for. Restarting on a failed *backup* is the
+// worst possible response: it drops the session we were trying to protect and
+// forces a re-scan. Log loudly and keep the door working instead.
+function installCrashGuards() {
+  process.on('unhandledRejection', (reason) => {
+    console.error('[app] unhandled rejection (continuing):', reason);
+  });
+  process.on('uncaughtException', (err) => {
+    console.error('[app] uncaught exception (continuing):', err);
+  });
+}
+
 async function main() {
+  installCrashGuards();
+
   await connectMongo();
   await Settings.load();
 

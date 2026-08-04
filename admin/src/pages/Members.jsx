@@ -14,6 +14,18 @@ export default function Members({ settings }) {
   const [manual, setManual] = useState({ phone: '', displayName: '' });
   const [query, setQuery] = useState('');
 
+  const groups = settings?.groups || [];
+  const [selectedGroup, setSelectedGroup] = useState(groups[0]?.id || '');
+
+  // Keep the picker valid when Settings adds or removes groups.
+  useEffect(() => {
+    if (groups.length === 0) {
+      setSelectedGroup('');
+    } else if (!groups.some((g) => g.id === selectedGroup)) {
+      setSelectedGroup(groups[0].id);
+    }
+  }, [groups, selectedGroup]);
+
   async function loadMembers() {
     try {
       const { members: list } = await api.members();
@@ -45,14 +57,14 @@ export default function Members({ settings }) {
     );
   }, [members, query]);
 
-  async function loadParticipants() {
-    if (!settings?.groupId) {
-      setFlash({ ok: false, message: 'Pick the door group in Settings first.' });
+  async function loadParticipants(groupId = selectedGroup) {
+    if (!groupId) {
+      setFlash({ ok: false, message: 'Add a group in Settings first.' });
       return;
     }
     setLoadingParticipants(true);
     try {
-      const { participants: list } = await api.participants(settings.groupId);
+      const { participants: list } = await api.participants(groupId);
       setParticipants(list);
     } catch (err) {
       setFlash({
@@ -127,12 +139,41 @@ export default function Members({ settings }) {
         title="From the group"
         hint="Enrol people straight off the participant list — that captures the exact WhatsApp id the bot will see."
         actions={
-          <button className="btn btn--ghost btn--sm" onClick={loadParticipants} disabled={loadingParticipants}>
-            {loadingParticipants ? 'Loading…' : participants ? 'Refresh' : 'Load participants'}
-          </button>
+          <div className="row">
+            {groups.length > 1 && (
+              <select
+                className="select"
+                style={{ width: 'auto', minWidth: '180px' }}
+                value={selectedGroup}
+                onChange={(e) => {
+                  setSelectedGroup(e.target.value);
+                  setParticipants(null);
+                }}
+              >
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name || g.id}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button
+              className="btn btn--ghost btn--sm"
+              onClick={() => loadParticipants()}
+              disabled={loadingParticipants || !selectedGroup}
+            >
+              {loadingParticipants ? 'Loading…' : participants ? 'Refresh' : 'Load participants'}
+            </button>
+          </div>
         }
       >
-        {!participants && <Empty>Load the group to see who is in it.</Empty>}
+        {!participants && (
+          <Empty>
+            {groups.length === 0
+              ? 'No groups configured yet — add one in Settings.'
+              : 'Load the group to see who is in it.'}
+          </Empty>
+        )}
         {participants && participants.length === 0 && <Empty>That group has no participants.</Empty>}
         {participants && participants.length > 0 && (
           <div className="table-wrap">

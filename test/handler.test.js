@@ -38,6 +38,8 @@ const { handleMessage } = require('../src/whatsapp/handlers');
 const rateLimiter = require('../src/whatsapp/rate-limiter');
 
 const GROUP = '120363000000000000@g.us';
+const SECOND_GROUP = '120363111111111111@g.us';
+const DISABLED_GROUP = '120363222222222222@g.us';
 const OTHER_GROUP = '120363999999999999@g.us';
 
 // A client stub: identity resolution falls back to parsing the JID, which is
@@ -82,7 +84,10 @@ async function main() {
   rateLimiter.reset();
 
   const settings = await Settings.load();
-  settings.groupId = GROUP;
+  settings.groups = [
+    { id: GROUP, name: 'Door group', enabled: true },
+    { id: DISABLED_GROUP, name: 'Paused group', enabled: false },
+  ];
   settings.replyMode = 'both';
   await settings.save();
 
@@ -111,6 +116,13 @@ async function main() {
   m = makeMsg({ from: '212661111111@c.us', author: undefined, body: '/open' });
   await handleMessage(client, m);
   check('command in a DM is ignored', opens.length === 0 && (await AuditLog.countDocuments()) === 0);
+
+  m = makeMsg({ from: DISABLED_GROUP, author: '212661111111@c.us', body: '/open' });
+  await handleMessage(client, m);
+  check(
+    'command in a disabled group is ignored',
+    opens.length === 0 && (await AuditLog.countDocuments()) === 0
+  );
 
   console.log('\n-- freshness --');
   m = makeMsg({ author: '212661111111@c.us', body: '/open', ageSec: 600 });
@@ -154,6 +166,28 @@ async function main() {
   m = makeMsg({ author: '99988877766655@lid', body: 'ouvre' });
   await handleMessage(client, m);
   check('LID member opens the door', opens.length === 2);
+
+  console.log('\n-- multiple groups --');
+  rateLimiter.reset();
+  settings.groups.push({ id: SECOND_GROUP, name: 'Second door', enabled: true });
+  await settings.save();
+  const beforeSecond = opens.length;
+  m = makeMsg({ from: SECOND_GROUP, author: '212661111111@c.us', body: '/open' });
+  await handleMessage(client, m);
+  check('a second enabled group also opens', opens.length - beforeSecond === 1);
+  log = await AuditLog.findOne().sort({ at: -1 });
+  check('  log records which group it came from', log?.groupId === SECOND_GROUP);
+
+  // Toggling a group off must take effect without a restart.
+  settings.groups = settings.groups.map((g) =>
+    g.id === SECOND_GROUP ? { ...g.toObject?.() ?? g, enabled: false } : g
+  );
+  await settings.save();
+  rateLimiter.reset();
+  const beforeToggle = opens.length;
+  m = makeMsg({ from: SECOND_GROUP, author: '212661111111@c.us', body: '/open' });
+  await handleMessage(client, m);
+  check('disabling a group takes effect immediately', opens.length === beforeToggle);
 
   console.log('\n-- keyword variants --');
   // Reset between each so the per-user limit doesn't mask a parsing failure -

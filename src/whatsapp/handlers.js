@@ -55,9 +55,9 @@ async function respond(msg, settings, decision, text) {
 async function handleMessage(client, msg) {
   const settings = await Settings.load();
 
-  // 1. Scope - only the configured group. DMs and other groups are dropped
+  // 1. Scope - only the configured groups. DMs and other groups are dropped
   //    silently and without a log entry.
-  if (!settings.groupId || msg.from !== settings.groupId) return;
+  if (!settings.listensTo(msg.from)) return;
 
   // 2. Freshness - on reconnect whatsapp-web.js can replay a backlog. Without
   //    this guard, an hour-old "/open" would fire the relay on every restart.

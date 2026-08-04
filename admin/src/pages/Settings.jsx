@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
-import { Card, Field, Flash, Toggle, useFlash } from '../components/ui';
+import { Card, Empty, Field, Flash, Toggle, useFlash } from '../components/ui';
 
 export default function Settings({ settings, doors, onSaved, waReady }) {
   const [draft, setDraft] = useState(settings);
@@ -15,8 +15,29 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
     setKeywordText((settings.commandKeywords || []).join(', '));
   }, [settings]);
 
+  const [manualGroup, setManualGroup] = useState('');
+  const listened = draft.groups || [];
+
   function set(field, value) {
     setDraft((d) => ({ ...d, [field]: value }));
+  }
+
+  function addGroup(group) {
+    setDraft((d) => {
+      if ((d.groups || []).some((g) => g.id === group.id)) return d;
+      return { ...d, groups: [...(d.groups || []), group] };
+    });
+  }
+
+  function setGroup(id, patch) {
+    setDraft((d) => ({
+      ...d,
+      groups: (d.groups || []).map((g) => (g.id === id ? { ...g, ...patch } : g)),
+    }));
+  }
+
+  function removeGroup(id) {
+    setDraft((d) => ({ ...d, groups: (d.groups || []).filter((g) => g.id !== id) }));
   }
 
   async function loadGroups() {
@@ -24,6 +45,15 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
     try {
       const { groups: list } = await api.groups();
       setGroups(list);
+      // Refresh names of groups we already listen to, so a renamed group stops
+      // showing its old label (or "Unnamed group" if it was added by id).
+      setDraft((d) => ({
+        ...d,
+        groups: (d.groups || []).map((g) => {
+          const live = list.find((l) => l.id === g.id);
+          return live ? { ...g, name: live.name } : g;
+        }),
+      }));
     } catch (err) {
       setFlash({
         ok: false,
@@ -64,8 +94,8 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
       <Flash flash={flash} />
 
       <Card
-        title="The door group"
-        hint="Commands are only accepted in this one group. Messages anywhere else are ignored."
+        title="Groups the bot listens in"
+        hint="Commands are only accepted in these groups. Messages anywhere else are ignored."
         actions={
           <button
             type="button"
@@ -73,39 +103,85 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
             onClick={loadGroups}
             disabled={loadingGroups || !waReady}
           >
-            {loadingGroups ? 'Loading…' : 'Load groups'}
+            {loadingGroups ? 'Loading…' : groups ? 'Refresh list' : 'Load groups'}
           </button>
         }
       >
-        {groups ? (
-          <Field label="Group">
+        {listened.length === 0 ? (
+          <Empty>Not listening anywhere yet — no command will do anything.</Empty>
+        ) : (
+          <div className="stack" style={{ marginBottom: 'var(--sp-4)' }}>
+            {listened.map((group) => (
+              <div className="spread" key={group.id}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 600 }}>{group.name || 'Unnamed group'}</div>
+                  <div className="mono">{group.id}</div>
+                </div>
+                <div className="row">
+                  <Toggle
+                    checked={group.enabled}
+                    label={`Listen in ${group.name || group.id}`}
+                    onChange={(v) => setGroup(group.id, { enabled: v })}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    onClick={() => removeGroup(group.id)}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {groups && (
+          <Field label="Add a group" hint="Only groups the bot's number is a member of appear here.">
             <select
               className="select"
-              value={draft.groupId || ''}
+              value=""
               onChange={(e) => {
                 const group = groups.find((g) => g.id === e.target.value);
-                setDraft((d) => ({ ...d, groupId: group?.id || '', groupName: group?.name || '' }));
+                if (group) addGroup({ id: group.id, name: group.name, enabled: true });
               }}
             >
-              <option value="">— none selected —</option>
-              {groups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name} ({g.participantCount ?? '?'} people)
-                </option>
-              ))}
+              <option value="">— pick a group to add —</option>
+              {groups
+                .filter((g) => !listened.some((l) => l.id === g.id))
+                .map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name} ({g.participantCount ?? '?'} people)
+                  </option>
+                ))}
             </select>
           </Field>
-        ) : (
-          <Field label="Group id" hint="Load the group list to pick one, or paste an id directly.">
-            <input
-              className="input mono"
-              placeholder="1203630xxxxxxxxxx@g.us"
-              value={draft.groupId || ''}
-              onChange={(e) => set('groupId', e.target.value)}
-            />
+        )}
+
+        {!groups && (
+          <Field label="Or paste a group id" hint="Ends with @g.us. Loading the list is easier.">
+            <div className="row">
+              <input
+                className="input mono"
+                style={{ flex: '1 1 240px' }}
+                placeholder="1203630xxxxxxxxxx@g.us"
+                value={manualGroup}
+                onChange={(e) => setManualGroup(e.target.value)}
+              />
+              <button
+                type="button"
+                className="btn btn--sm"
+                disabled={!manualGroup.trim().endsWith('@g.us')}
+                onClick={() => {
+                  addGroup({ id: manualGroup.trim(), name: '', enabled: true });
+                  setManualGroup('');
+                }}
+              >
+                Add
+              </button>
+            </div>
           </Field>
         )}
-        {draft.groupName && <p className="muted" style={{ fontSize: 'var(--fs-sm)' }}>Currently: {draft.groupName}</p>}
       </Card>
 
       <Card title="Commands" hint="A message counts as a command when it starts with one of these words.">

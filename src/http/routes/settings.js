@@ -4,8 +4,6 @@ const Settings = require('../../db/models/Settings');
 const router = express.Router();
 
 const EDITABLE = [
-  'groupId',
-  'groupName',
   'commandKeywords',
   'defaultDoor',
   'replyMode',
@@ -39,6 +37,27 @@ router.patch('/', async (req, res) => {
     }
 
     settings[field] = body[field];
+  }
+
+  if (Array.isArray(body.groups)) {
+    const seen = new Set();
+    const groups = [];
+    for (const entry of body.groups) {
+      const id = String(entry?.id || '').trim();
+      // A group id must be a group JID - a c.us here would make the bot obey
+      // door commands sent in a one-to-one chat.
+      if (!id.endsWith('@g.us')) {
+        return res.status(400).json({ ok: false, error: `not a group id: ${id || '(empty)'}` });
+      }
+      if (seen.has(id)) continue;
+      seen.add(id);
+      groups.push({
+        id,
+        name: String(entry.name || '').trim(),
+        enabled: entry.enabled !== false,
+      });
+    }
+    settings.groups = groups;
   }
 
   if (body.doorsEnabled && typeof body.doorsEnabled === 'object') {

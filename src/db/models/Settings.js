@@ -7,6 +7,22 @@ const settingsSchema = new mongoose.Schema(
   {
     _id: { type: String, default: 'global' },
 
+    // Groups the bot listens in. A group can be toggled off without losing its
+    // name, so pausing one door group is one click rather than a re-pick.
+    groups: {
+      type: [
+        {
+          _id: false,
+          id: { type: String, required: true },
+          name: { type: String, default: '' },
+          enabled: { type: Boolean, default: true },
+        },
+      ],
+      default: [],
+    },
+
+    // Superseded by `groups`. Kept so an existing deployment's configured group
+    // survives the upgrade - migrated into `groups` by load() below.
     groupId: { type: String, default: null },
     groupName: { type: String, default: '' },
 
@@ -35,15 +51,31 @@ const settingsSchema = new mongoose.Schema(
   { timestamps: true, versionKey: false, _id: false }
 );
 
+/** Is this chat one we accept commands from? */
+settingsSchema.methods.listensTo = function listensTo(chatId) {
+  return this.groups.some((group) => group.enabled && group.id === chatId);
+};
+
 settingsSchema.statics.load = async function load() {
   let doc = await this.findById('global');
+
   if (!doc) {
+    const seed = config.whatsapp.seedGroupId;
     doc = await this.create({
       _id: 'global',
-      groupId: config.whatsapp.seedGroupId,
+      groups: seed ? [{ id: seed, name: '', enabled: true }] : [],
     });
     console.log('[settings] bootstrapped defaults');
+    return doc;
   }
+
+  // One-time migration from the single-group setting.
+  if (doc.groupId && !doc.groups.some((g) => g.id === doc.groupId)) {
+    doc.groups.push({ id: doc.groupId, name: doc.groupName || '', enabled: true });
+    await doc.save();
+    console.log(`[settings] migrated group ${doc.groupId} into the groups list`);
+  }
+
   return doc;
 };
 

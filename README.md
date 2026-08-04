@@ -11,7 +11,8 @@ Phase 1: the bot, the whitelist, the audit log and the panel.
 
 ## How it works
 
-1. A member sends `/open` (or `ouvre`, `porte`, …) in **one specific WhatsApp group**.
+1. A member sends `/open` (or `ouvre`, `porte`, …) in **one of the WhatsApp groups the
+   bot is configured to listen in** (managed from Settings → Groups).
 2. The bot — a `whatsapp-web.js` client running headless Chromium — sees the message,
    identifies the sender, and checks them against a whitelist in MongoDB.
 3. On success it pulses the front door relay through the Tuya Cloud API and reacts
@@ -68,8 +69,11 @@ the bot will see.
 
 These are all covered by `npm test` — don't regress them:
 
-- **Group scope.** Commands are only honoured in the configured group. DMs and
-  other groups are dropped before anything is logged.
+- **Group scope.** Commands are only honoured in groups that are in
+  `Settings.groups` *and* enabled. DMs and other groups are dropped before
+  anything is logged. The settings API refuses any id that isn't a `@g.us`
+  group JID — a `@c.us` there would make the bot obey commands in a one-to-one
+  chat, which bypasses the group entirely.
 - **Message freshness.** Commands older than `maxMessageAgeSec` (default 90s) are
   ignored. Without this, whatsapp-web.js replaying a backlog after a reconnect
   would fire the relay once per old "open" message.
@@ -77,6 +81,32 @@ These are all covered by `npm test` — don't regress them:
   pas ouvre" is chatter, not an open.
 - **Rate limits.** Per-member and global sliding windows.
 - **Deny-by-default,** and every denial is logged with a reason.
+
+## Session persistence: the two traps
+
+`RemoteAuth` is less forgiving than it looks, and both of these cost real time:
+
+1. **The session isn't saved until 60 seconds after the first scan.**
+   `RemoteAuth.afterAuthReady()` hardcodes `await this.delay(60000)` before its
+   first `storeRemoteSession`. Restart or redeploy inside that window and the
+   link is gone with no trace. The Connection screen shows a warning banner
+   until the first `remote session saved` lands — wait for it before deploying.
+
+2. **A disconnect DELETES the stored session.** `Client.js` calls
+   `authStrategy.disconnect()` for any state outside
+   `CONNECTED/OPENING/PAIRING/TIMEOUT`, and `RemoteAuth.disconnect()` runs
+   `deleteRemoteSession()`. So a transient problem doesn't just drop the
+   connection, it wipes the credential and forces a new QR.
+
+   The biggest trigger is `CONFLICT` — raised whenever a second WhatsApp Web
+   session appears. **Two app containers is the usual cause** (an overlapping
+   deploy, or a replica count above 1). We pass `takeoverOnConflict: true` so a
+   conflict is reclaimed rather than treated as fatal, but the real fix is to
+   never run two instances. See the deployment section.
+
+   Note also that whatsapp-web.js `destroy()`s the client after emitting
+   `disconnected`, so reconnecting requires building a **new** `Client` — you
+   cannot re-`initialize()` the old one.
 
 ## Setup
 
@@ -108,8 +138,17 @@ Use the `Dockerfile`, not Nixpacks — `whatsapp-web.js` drives a real browser a
 the image installs Debian's `chromium` for it.
 
 - **Give the service ~1GB of RAM.** Chromium will OOM-loop on 512MB.
-- Set every var in `.env.example` in the Railway environment.
-- Point `MONGODB_URI` at Railway's Mongo plugin or Atlas.
+- Set every var in `.env.example` in the Railway environment. Reference the
+  database service rather than pasting a URL, and append a database name:
+  `MONGODB_URI=${{MongoDB.MONGO_URL}}/mindsept` — without the name, Mongoose
+  silently uses a database called `test`.
+- **Exactly one replica, and no overlapping deploys.** Two containers means two
+  WhatsApp Web sessions, which means `CONFLICT`, which (see above) destroys the
+  stored session. Railway's default rolling deploy briefly runs old and new
+  together — turn that off for this service.
+- Run the app and the panel as **one service**; the panel reads the live client
+  in-process (QR, `getChats()`, participants) and there is nothing to gain by
+  splitting them, since the bot can never be scaled past one instance anyway.
 
 ## Security notes
 

@@ -1,7 +1,7 @@
 const express = require('express');
 const { getClient, isReady } = require('../../whatsapp/client');
 const { identifySender } = require('../../whatsapp/identity');
-const { listGroups } = require('../../whatsapp/groups');
+const { listGroups, listParticipants } = require('../../whatsapp/groups');
 
 const router = express.Router();
 
@@ -46,16 +46,19 @@ router.get('/', requireReady, async (req, res) => {
 router.get('/:id/participants', requireReady, async (req, res) => {
   try {
     const client = getClient();
-    const chat = await client.getChatById(req.params.id);
-    if (!chat?.isGroup) {
+    const chat = await listParticipants(client, req.params.id);
+    if (!chat.found) {
+      return res.status(404).json({ ok: false, error: 'That chat is not loaded on this account.' });
+    }
+    if (!chat.isGroup) {
       return res.status(404).json({ ok: false, error: 'not_a_group' });
     }
 
     // allSettled, not all: one participant WhatsApp can't resolve must not cost
     // the admin the entire enrolment list.
     const settled = await Promise.allSettled(
-      (chat.participants || []).map(async (participant) => {
-        const waId = participant.id._serialized;
+      chat.participants.map(async (participant) => {
+        const waId = participant.waId;
         const identity = await identifySender(client, waId);
         let name = '';
         try {
@@ -69,7 +72,7 @@ router.get('/:id/participants', requireReady, async (req, res) => {
           lid: identity.lid,
           phone: identity.phone,
           name,
-          isAdmin: Boolean(participant.isAdmin || participant.isSuperAdmin),
+          isAdmin: Boolean(participant.isAdmin),
         };
       })
     );
@@ -80,13 +83,7 @@ router.get('/:id/participants', requireReady, async (req, res) => {
     const skipped = settled.length - participants.length;
     if (skipped) console.warn(`[api] skipped ${skipped} unreadable participant(s)`);
 
-    res.json({
-      ok: true,
-      groupId: chat.id._serialized,
-      name: chat.name,
-      participants,
-      skipped,
-    });
+    res.json({ ok: true, groupId: req.params.id, name: chat.name, participants, skipped });
   } catch (err) {
     console.error('[api] listing participants failed:', err);
     res

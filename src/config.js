@@ -1,11 +1,39 @@
 require('dotenv').config();
 
+// Collect every missing var rather than throwing on the first one. On a
+// platform that restarts the container on exit, failing one at a time means one
+// crash-loop per missing variable.
+const missing = [];
+
 function required(name) {
   const value = process.env[name];
   if (!value) {
-    throw new Error(`Missing required env var: ${name} (see .env.example)`);
+    missing.push(name);
+    return null;
   }
   return value;
+}
+
+// A missing variable is an operator problem, not a bug - print something
+// readable and exit rather than dumping a stack trace into the deploy log.
+function assertConfigured() {
+  if (missing.length === 0) return;
+  console.error(
+    [
+      '',
+      `Cannot start: missing required environment variable${missing.length > 1 ? 's' : ''}.`,
+      '',
+      ...missing.map((name) => `  - ${name}`),
+      '',
+      'Set these in your deployment environment (or .env locally).',
+      'See .env.example for what each one is.',
+      '',
+      'On Railway, reference the database service instead of pasting a URL:',
+      '  MONGODB_URI=${{MongoDB.MONGO_URL}}',
+      '',
+    ].join('\n')
+  );
+  process.exit(1);
 }
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -51,5 +79,7 @@ const config = {
     seedGroupId: process.env.WA_GROUP_ID || null,
   },
 };
+
+assertConfigured();
 
 module.exports = { config };

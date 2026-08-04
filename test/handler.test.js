@@ -213,6 +213,33 @@ async function main() {
     `opened ${opens.length - beforeVariants}/${variants.length}`
   );
 
+  console.log('\n-- configurable replies --');
+  rateLimiter.reset();
+  settings.replies.granted = { emoji: '🚀', text: 'Salut {name}, {door} ouverte !' };
+  settings.replies.denied_not_whitelisted = { emoji: '', text: '' };
+  settings.markModified('replies');
+  await settings.save();
+
+  m = makeMsg({ author: '212661111111@c.us', body: '/open' });
+  await handleMessage(client, m);
+  check('custom reaction is used', m.reactions[0] === '🚀', m.reactions[0]);
+  check('  {name} is substituted', /Allowed Person/.test(m.replies[0] || ''), m.replies[0]);
+  check('  {door} is substituted', /Front door/.test(m.replies[0] || ''), m.replies[0]);
+
+  // Blank emoji and blank text mean "stay quiet", not "fall back to default".
+  m = makeMsg({ author: '212669999999@c.us', body: '/open' });
+  await handleMessage(client, m);
+  check('blank reply sends no reaction', m.reactions.length === 0, JSON.stringify(m.reactions));
+  check('  and no message', m.replies.length === 0, JSON.stringify(m.replies));
+  log = await AuditLog.findOne().sort({ at: -1 });
+  check('  but the denial is still logged', log?.decision === 'denied' && log?.reason === 'not_whitelisted');
+
+  // Restore so later sections see predictable output.
+  settings.replies.granted = { emoji: '✅', text: 'Ouvert 🚪' };
+  settings.replies.denied_not_whitelisted = { emoji: '⛔', text: 'Pas sur la liste.' };
+  settings.markModified('replies');
+  await settings.save();
+
   console.log('\n-- test mode --');
   rateLimiter.reset();
   settings.testMode = true;
@@ -248,7 +275,8 @@ async function main() {
     msgs.push(msg);
   }
   check('per-user limit caps opens at 3', opens.length - before === 3, `got ${opens.length - before}`);
-  check('  4th attempt denied', msgs[3].reactions[0] === '⛔');
+  // Rate limiting gets its own emoji: "wait", not "never".
+  check('  4th attempt denied', msgs[3].reactions[0] === '⏳', msgs[3].reactions[0]);
   log = await AuditLog.findOne({ decision: 'denied' }).sort({ at: -1 });
   check('  rate-limit denial logged with reason', /rate_limited_user/.test(log?.reason || ''), log?.reason);
 

@@ -5,26 +5,8 @@ const { triggerDoor, DOORS } = require('../doors/door-service');
 const { bus, EVENTS } = require('../events');
 const { parseCommand } = require('./command-router');
 const { identifyMessageSender } = require('./identity');
+const { renderReply } = require('./replies');
 const rateLimiter = require('./rate-limiter');
-
-const REACTIONS = {
-  granted: '✅',
-  denied: '⛔',
-  error: '⚠️',
-  // Distinct on purpose: someone standing at the door needs to know at a glance
-  // that nothing actually opened.
-  simulated: '🧪',
-};
-
-const MESSAGES = {
-  denied_not_whitelisted: "Tu n'es pas sur la liste. Demande à un admin de t'ajouter.",
-  denied_rate_limited: 'Trop de demandes, réessaie dans un instant.',
-  denied_door_disabled: 'Cette porte est désactivée pour le moment.',
-  denied_unknown_door: "Je ne connais pas cette porte.",
-  granted: 'Ouvert 🚪',
-  simulated: "Mode test : la porte n'a PAS été ouverte.",
-  error: "Ça n'a pas marché, préviens un admin.",
-};
 
 async function record(entry) {
   try {
@@ -35,11 +17,18 @@ async function record(entry) {
   }
 }
 
-async function respond(msg, settings, decision, text) {
+/**
+ * Answer a command using the admin-configured wording for `outcome`.
+ *
+ * An empty emoji or an empty text means "stay quiet on this one" - that is a
+ * supported configuration, not a missing value.
+ */
+async function respond(msg, settings, outcome, vars = {}) {
   const mode = settings.replyMode || 'react';
+  const { emoji, text } = renderReply(settings, outcome, vars);
   try {
-    if (mode === 'react' || mode === 'both') {
-      await msg.react(REACTIONS[decision] || '');
+    if ((mode === 'react' || mode === 'both') && emoji) {
+      await msg.react(emoji);
     }
     if ((mode === 'text' || mode === 'both') && text) {
       await msg.reply(text);
@@ -89,32 +78,48 @@ async function handleMessage(client, msg) {
     messageId: msg.id?._serialized || null,
   };
 
-  const deny = async (reason, text) => {
+  // Placeholders an admin can use in the configured reply text.
+  const vars = {
+    name: identity.name || identity.phone || 'toi',
+    door: DOORS[command.door]?.label || command.door,
+  };
+
+  // `outcome` picks the wording; `reason` is the machine-readable audit note,
+  // which carries detail (counts, limits) we don't want in a group message.
+  const deny = async (outcome, reason) => {
     await record({ ...base, decision: 'denied', reason });
-    await respond(msg, settings, 'denied', text);
+    await respond(msg, settings, outcome, vars);
   };
 
   // 5. Authorize.
   const user = await User.findAuthorized(identity);
   if (!user) {
     console.log(`[wa] denied ${identity.waId} (${identity.phone || 'no phone'}) - not whitelisted`);
-    return deny('not_whitelisted', MESSAGES.denied_not_whitelisted);
+    return deny('denied_not_whitelisted', 'not_whitelisted');
   }
 
   if (!DOORS[command.door]) {
-    return deny('unknown_door', MESSAGES.denied_unknown_door);
+    return deny('denied_unknown_door', 'unknown_door');
   }
   if (settings.doorsEnabled?.get?.(command.door) === false) {
-    return deny('door_disabled', MESSAGES.denied_door_disabled);
+    return deny('denied_door_disabled', 'door_disabled');
   }
+
+  vars.name = user.displayName || vars.name;
 
   const perUser = rateLimiter.take(`user:${user._id}`, settings.rateLimitPerUserPerMin);
   if (!perUser.allowed) {
-    return deny(`rate_limited_user (${perUser.count}/${perUser.limit} per min)`, MESSAGES.denied_rate_limited);
+    return deny(
+      'denied_rate_limited',
+      `rate_limited_user (${perUser.count}/${perUser.limit} per min)`
+    );
   }
   const global = rateLimiter.take('global', settings.rateLimitGlobalPerMin);
   if (!global.allowed) {
-    return deny(`rate_limited_global (${global.count}/${global.limit} per min)`, MESSAGES.denied_rate_limited);
+    return deny(
+      'denied_rate_limited',
+      `rate_limited_global (${global.count}/${global.limit} per min)`
+    );
   }
 
   // 6. Open.
@@ -127,12 +132,7 @@ async function handleMessage(client, msg) {
     const durationMs = Date.now() - startedAt;
 
     await record({ ...base, decision: 'granted', durationMs, simulated });
-    await respond(
-      msg,
-      settings,
-      simulated ? 'simulated' : 'granted',
-      simulated ? MESSAGES.simulated : MESSAGES.granted
-    );
+    await respond(msg, settings, simulated ? 'simulated' : 'granted', vars);
 
     await User.updateOne({ _id: user._id }, { $set: { lastOpenedAt: new Date() } });
     bus.emit(EVENTS.DOOR_OPENED, { door: command.door, actor: identity.name || identity.waId });
@@ -148,9 +148,9 @@ async function handleMessage(client, msg) {
       reason: err.message,
       durationMs: Date.now() - startedAt,
     });
-    await respond(msg, settings, 'error', MESSAGES.error);
+    await respond(msg, settings, 'error', vars);
     console.error(`[wa] door trigger failed:`, err.message);
   }
 }
 
-module.exports = { handleMessage, REACTIONS, MESSAGES };
+module.exports = { handleMessage };

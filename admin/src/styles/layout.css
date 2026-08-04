@@ -142,6 +142,38 @@
   flex: 1;
 }
 
+/* One editable reply: label, reaction, message. */
+.reply-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) 4.5rem minmax(0, 2fr);
+  gap: var(--sp-3);
+  align-items: center;
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--clr-border);
+}
+
+.reply-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.reply-row__emoji {
+  text-align: center;
+  font-size: var(--fs-lg);
+  padding: var(--sp-2);
+}
+
+@media (max-width: 720px) {
+  .reply-row {
+    grid-template-columns: 4.5rem minmax(0, 1fr);
+  }
+
+  /* Label spans the full width above the two inputs. */
+  .reply-row__meta {
+    grid-column: 1 / -1;
+  }
+}
+
 /* --- Login ------------------------------------------------------------- */
 .login {
   min-height: 100vh;

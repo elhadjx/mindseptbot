@@ -40,6 +40,7 @@ export const api = {
 
   settings: () => request('/settings'),
   saveSettings: (patch) => request('/settings', { method: 'PATCH', body: patch }),
+  outcomes: () => request('/settings/outcomes'),
 
   doors: () => request('/doors'),
   openDoor: (door) => request(`/doors/${door}/open`, { method: 'POST' }),

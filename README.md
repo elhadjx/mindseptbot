@@ -66,6 +66,28 @@ Practical consequence: **enroll members from the Members screen's group
 participant list**, not by typing phone numbers. That captures the exact `waId`
 the bot will see.
 
+## Replies
+
+Settings → What the bot replies edits the emoji and text for every outcome
+(opened, not on the list, rate limited, test mode, …). `replyMode` still decides
+whether the bot reacts, sends text, or both.
+
+The catalogue lives in `src/whatsapp/replies.js` and is served to the panel from
+`GET /api/settings/outcomes`, so **adding a case there makes it appear in
+Settings with no panel change**. Each outcome needs a `key`, `label`, `hint`,
+default `emoji`/`text`, and an entry in `OUTCOME_DECISION`.
+
+Notes:
+
+- An empty emoji or text means *stay silent on that outcome* — it is a real
+  choice, not a missing value, and is never replaced by the default.
+- `{name}` and `{door}` are substituted. Unknown placeholders are left visible
+  rather than blanked, so a typo shows up instead of vanishing.
+- Reactions are validated as a single grapheme, so a ZWJ emoji like 👨‍👩‍👧
+  is accepted but `✅✅` is rejected.
+- The audit `reason` stays separate from the reply wording: it carries detail
+  (which limit, what count) that shouldn't go into a group message.
+
 ## Test mode
 
 Settings → Test mode runs the entire pipeline — group scope, whitelist, rate

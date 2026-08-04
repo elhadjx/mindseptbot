@@ -1,7 +1,21 @@
 const express = require('express');
 const Settings = require('../../db/models/Settings');
+const {
+  OUTCOMES,
+  OUTCOME_KEYS,
+  PLACEHOLDERS,
+  defaultReplies,
+  graphemeLength,
+} = require('../../whatsapp/replies');
 
 const router = express.Router();
+
+const MAX_REPLY_LENGTH = 500;
+
+/** Expose the outcome catalogue so the panel builds its form from the server. */
+router.get('/outcomes', (req, res) => {
+  res.json({ ok: true, outcomes: OUTCOMES, placeholders: PLACEHOLDERS });
+});
 
 const EDITABLE = [
   'testMode',
@@ -38,6 +52,38 @@ router.patch('/', async (req, res) => {
     }
 
     settings[field] = body[field];
+  }
+
+  if (body.replies && typeof body.replies === 'object') {
+    for (const [key, value] of Object.entries(body.replies)) {
+      if (!OUTCOME_KEYS.includes(key)) {
+        return res.status(400).json({ ok: false, error: `unknown outcome: ${key}` });
+      }
+      const emoji = String(value?.emoji ?? '').trim();
+      const text = String(value?.text ?? '').trim();
+
+      // WhatsApp reactions are a single emoji. Count graphemes so a ZWJ
+      // sequence like a family emoji still counts as one.
+      if (emoji && graphemeLength(emoji) > 1) {
+        return res
+          .status(400)
+          .json({ ok: false, error: `"${key}" reaction must be a single emoji` });
+      }
+      if (text.length > MAX_REPLY_LENGTH) {
+        return res
+          .status(400)
+          .json({ ok: false, error: `"${key}" reply is too long (max ${MAX_REPLY_LENGTH})` });
+      }
+
+      settings.replies[key] = { emoji, text };
+    }
+    settings.markModified('replies');
+  }
+
+  // Explicit opt-in to restore the shipped wording.
+  if (body.resetReplies === true) {
+    settings.replies = defaultReplies();
+    settings.markModified('replies');
   }
 
   if (Array.isArray(body.groups)) {

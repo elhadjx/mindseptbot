@@ -18,6 +18,37 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
   const [manualGroup, setManualGroup] = useState('');
   const listened = draft.groups || [];
 
+  // The outcome catalogue comes from the server, so adding a reply case in
+  // src/whatsapp/replies.js makes it appear here with no panel change.
+  const [outcomes, setOutcomes] = useState([]);
+  const [placeholders, setPlaceholders] = useState([]);
+  useEffect(() => {
+    api
+      .outcomes()
+      .then((r) => {
+        setOutcomes(r.outcomes);
+        setPlaceholders(r.placeholders);
+      })
+      .catch(() => setOutcomes([]));
+  }, []);
+
+  function setReply(key, patch) {
+    setDraft((d) => ({
+      ...d,
+      replies: { ...(d.replies || {}), [key]: { ...(d.replies?.[key] || {}), ...patch } },
+    }));
+  }
+
+  async function resetReplies() {
+    try {
+      const { settings: saved } = await api.saveSettings({ resetReplies: true });
+      onSaved(saved);
+      setFlash({ ok: true, message: 'Replies restored to the defaults.' });
+    } catch (err) {
+      setFlash({ ok: false, message: err.message });
+    }
+  }
+
   function set(field, value) {
     setDraft((d) => ({ ...d, [field]: value }));
   }
@@ -254,6 +285,75 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
             </select>
           </Field>
         </div>
+      </Card>
+
+      <Card
+        title="What the bot replies"
+        hint={
+          draft.replyMode === 'react'
+            ? 'Only the reactions are used right now — switch "How the bot answers" above to send text too.'
+            : draft.replyMode === 'text'
+              ? 'Only the text is used right now — switch "How the bot answers" above to react too.'
+              : 'Both the reaction and the text are sent.'
+        }
+        actions={
+          <button type="button" className="btn btn--ghost btn--sm" onClick={resetReplies}>
+            Restore defaults
+          </button>
+        }
+      >
+        {outcomes.length === 0 ? (
+          <Empty>Loading…</Empty>
+        ) : (
+          <>
+            <p className="muted" style={{ fontSize: 'var(--fs-xs)', marginTop: 0 }}>
+              Leave a field empty to stay silent on that outcome.
+              {placeholders.length > 0 && (
+                <>
+                  {' '}
+                  You can use{' '}
+                  {placeholders.map((p, i) => (
+                    <span key={p}>
+                      {i > 0 && ', '}
+                      <code>{`{${p}}`}</code>
+                    </span>
+                  ))}{' '}
+                  in the text.
+                </>
+              )}
+            </p>
+
+            <div className="stack">
+              {outcomes.map((outcome) => {
+                const value = draft.replies?.[outcome.key] || {};
+                return (
+                  <div className="reply-row" key={outcome.key}>
+                    <div className="reply-row__meta">
+                      <div style={{ fontWeight: 600 }}>{outcome.label}</div>
+                      <div className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
+                        {outcome.hint}
+                      </div>
+                    </div>
+                    <input
+                      className="input reply-row__emoji"
+                      aria-label={`${outcome.label} reaction`}
+                      placeholder="—"
+                      value={value.emoji ?? ''}
+                      onChange={(e) => setReply(outcome.key, { emoji: e.target.value })}
+                    />
+                    <input
+                      className="input"
+                      aria-label={`${outcome.label} message`}
+                      placeholder="(no message)"
+                      value={value.text ?? ''}
+                      onChange={(e) => setReply(outcome.key, { text: e.target.value })}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
       </Card>
 
       <Card title="Limits" hint="Guard rails against spam and against replayed messages after a reconnect.">

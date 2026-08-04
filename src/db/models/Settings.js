@@ -1,5 +1,27 @@
 const { mongoose } = require('../mongo');
 const { config } = require('../../config');
+const { OUTCOMES, defaultReplies } = require('../../whatsapp/replies');
+
+// One editable reply per outcome. An empty emoji means "don't react", an empty
+// text means "don't send a message" - both are useful for keeping the group
+// quiet on specific outcomes.
+const replySchema = new mongoose.Schema(
+  {
+    emoji: { type: String, default: '', trim: true },
+    text: { type: String, default: '', trim: true },
+  },
+  { _id: false }
+);
+
+const repliesSchema = new mongoose.Schema(
+  Object.fromEntries(
+    OUTCOMES.map((outcome) => [
+      outcome.key,
+      { type: replySchema, default: () => ({ emoji: outcome.emoji, text: outcome.text }) },
+    ])
+  ),
+  { _id: false }
+);
 
 // Singleton runtime settings, editable from the admin panel so the group,
 // keywords and limits can change without a redeploy. Env vars only seed it.
@@ -37,7 +59,10 @@ const settingsSchema = new mongoose.Schema(
       default: () => new Map([['front', true]]),
     },
 
+    // Whether to react, reply with text, or both. The wording of each is in
+    // `replies` below.
     replyMode: { type: String, enum: ['react', 'text', 'both'], default: 'react' },
+    replies: { type: repliesSchema, default: () => defaultReplies() },
 
     // Test mode: run the whole pipeline - scope, whitelist, rate limits, audit
     // log - but never send the Tuya command. For trying the bot out without

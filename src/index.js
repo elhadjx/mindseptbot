@@ -2,7 +2,7 @@ const { config } = require('./config');
 const { connectMongo } = require('./db/mongo');
 const Settings = require('./db/models/Settings');
 const { createApp } = require('./http/app');
-const { startWhatsApp, getClient } = require('./whatsapp/client');
+const { startWhatsApp, stopWhatsApp, getClient } = require('./whatsapp/client');
 const { handleMessage } = require('./whatsapp/handlers');
 
 async function main() {
@@ -22,6 +22,7 @@ async function main() {
 
   const shutdown = async (signal) => {
     console.log(`\n[app] ${signal} - shutting down`);
+    stopWhatsApp();
     server.close();
     try {
       await getClient()?.destroy();

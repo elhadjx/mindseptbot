@@ -109,6 +109,18 @@ export default function Connection({ state, doors }) {
               </div>
             </dl>
 
+            {/*
+              RemoteAuth waits 60s after the first authentication before writing
+              the session to Mongo. Restarting inside that window loses the link
+              silently, so it needs to be visible rather than inferred.
+            */}
+            {state.status === 'ready' && !state.sessionBackedUp && (
+              <div className="banner">
+                Linked, but the session is not saved to the database yet — this takes about a
+                minute. If the service restarts before then, you will have to scan again.
+              </div>
+            )}
+
             {state.lastError && <div className="banner">{state.lastError}</div>}
 
             <div className="row">

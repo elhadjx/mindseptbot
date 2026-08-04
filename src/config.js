@@ -65,10 +65,11 @@ const config = {
   whatsapp: {
     // Distinguishes sessions sharing one database (e.g. staging vs prod).
     clientId: process.env.WA_CLIENT_ID || 'mindsept',
-    // RemoteAuth rejects anything below 60000.
+    // RemoteAuth rejects anything below 60000, and every missed backup is a
+    // window where a restart loses the link - so sync at the minimum.
     backupSyncIntervalMs: Math.max(
       60000,
-      Number(process.env.WA_BACKUP_SYNC_INTERVAL_MS) || 300000
+      Number(process.env.WA_BACKUP_SYNC_INTERVAL_MS) || 60000
     ),
     // Local scratch dir RemoteAuth zips from. Ephemeral by design - the
     // real session lives in Mongo.

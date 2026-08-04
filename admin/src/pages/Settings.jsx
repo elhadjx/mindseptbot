@@ -40,7 +40,7 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
     setDraft((d) => ({ ...d, groups: (d.groups || []).filter((g) => g.id !== id) }));
   }
 
-  async function loadGroups() {
+  async function loadGroups({ silent = false } = {}) {
     setLoadingGroups(true);
     try {
       const { groups: list } = await api.groups();
@@ -55,14 +55,26 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
         }),
       }));
     } catch (err) {
-      setFlash({
-        ok: false,
-        message: err.message === 'whatsapp_not_ready' ? 'WhatsApp is not connected yet.' : err.message,
-      });
+      // The automatic load is best-effort - don't nag with an error banner the
+      // admin didn't ask for. The manual button still reports failures.
+      if (!silent) {
+        setFlash({
+          ok: false,
+          message:
+            err.message === 'whatsapp_not_ready' ? 'WhatsApp is not connected yet.' : err.message,
+        });
+      }
     } finally {
       setLoadingGroups(false);
     }
   }
+
+  // Populate the picker as soon as WhatsApp is ready, so the group list is
+  // simply there rather than behind a button.
+  useEffect(() => {
+    if (waReady && !groups && !loadingGroups) loadGroups({ silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waReady]);
 
   async function save(event) {
     event.preventDefault();
@@ -100,10 +112,10 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
           <button
             type="button"
             className="btn btn--ghost btn--sm"
-            onClick={loadGroups}
+            onClick={() => loadGroups()}
             disabled={loadingGroups || !waReady}
           >
-            {loadingGroups ? 'Loading…' : groups ? 'Refresh list' : 'Load groups'}
+            {loadingGroups ? 'Loading…' : 'Refresh list'}
           </button>
         }
       >
@@ -159,7 +171,14 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
         )}
 
         {!groups && (
-          <Field label="Or paste a group id" hint="Ends with @g.us. Loading the list is easier.">
+          <Field
+            label="Or paste a group id"
+            hint={
+              waReady
+                ? 'Ends with @g.us. The list above is easier — hit Refresh.'
+                : 'The group list appears automatically once WhatsApp is connected.'
+            }
+          >
             <div className="row">
               <input
                 className="input mono"

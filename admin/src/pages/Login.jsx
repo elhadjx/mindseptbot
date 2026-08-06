@@ -28,7 +28,7 @@ export default function Login({ onAuthenticated }) {
   return (
     <div className="login">
       <form className="card login__card" onSubmit={submit}>
-        <div className="login__mark" />
+        <img className="login__mark" src="/logo.png" alt="Mindsept" />
         <h1 style={{ marginBottom: 'var(--sp-1)' }}>Mindsept</h1>
         <p className="muted" style={{ marginTop: 0, fontSize: 'var(--fs-sm)' }}>
           Door access administration

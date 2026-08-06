@@ -1,6 +1,7 @@
 const { config } = require('./config');
 const { connectMongo } = require('./db/mongo');
 const Settings = require('./db/models/Settings');
+const Credentials = require('./db/models/Credentials');
 const User = require('./db/models/User');
 const { backfillPhones } = require('./whatsapp/phone');
 const { createApp } = require('./http/app');
@@ -26,6 +27,7 @@ async function main() {
 
   await connectMongo();
   const settings = await Settings.load();
+  await Credentials.load();
 
   // Repairs members enrolled before phone normalisation existed. Idempotent, so
   // it costs nothing on every boot after the first - which is the point: there

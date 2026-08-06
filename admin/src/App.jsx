@@ -99,7 +99,7 @@ export default function App() {
     <div className="shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand__mark" />
+          <img className="brand__mark" src="/logo.png" alt="Mindsept" />
           <div>
             <div className="brand__name">Mindsept</div>
             <div className="brand__sub">Door access</div>

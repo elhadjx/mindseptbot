@@ -23,14 +23,11 @@
   padding: 0 var(--sp-3);
 }
 
-/* The one purely decorative element in the panel: an asymmetric seed shape. */
 .brand__mark {
-  width: 2.25rem;
-  height: 2.25rem;
-  border-radius: var(--r-blob);
-  background: linear-gradient(145deg, var(--clr-moss) 0%, var(--clr-sage) 100%);
+  height: 1.75rem;
+  width: auto;
+  object-fit: contain;
   flex: none;
-  animation: drift 14s var(--ease-settle) infinite;
 }
 
 @keyframes drift {
@@ -223,12 +220,11 @@
 }
 
 .login__mark {
-  width: 3.5rem;
-  height: 3.5rem;
+  display: block;
+  height: 3rem;
+  width: auto;
+  object-fit: contain;
   margin: 0 auto var(--sp-4);
-  border-radius: var(--r-blob);
-  background: linear-gradient(145deg, var(--clr-moss) 0%, var(--clr-sage) 100%);
-  animation: drift 14s var(--ease-settle) infinite;
 }
 
 /* --- Connection screen -------------------------------------------------- */

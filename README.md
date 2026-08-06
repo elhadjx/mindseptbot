@@ -41,7 +41,8 @@ src/
   index.js              boot: mongo -> express -> whatsapp
   config.js             env parsing, fails fast on missing vars
   events.js             in-process bus (WhatsApp state -> panel SSE)
-  db/models/            User (whitelist), AuditLog, Settings (singleton)
+  db/models/            User (whitelist), AuditLog, Settings, Credentials (singletons)
+  security/             passwords.js - scrypt hashing for the panel login
   doors/                tuya-cloud.js (Phase 0, unchanged) + door-service.js
   whatsapp/             client.js, identity.js, phone.js, command-router.js,
                         rate-limiter.js, handlers.js, groups.js, contacts.js
@@ -277,9 +278,15 @@ the image installs Debian's `chromium` for it.
   that database can impersonate the bot's WhatsApp account. Lock down DB access.
 - `whatsapp-web.js` is unofficial and automating an account can get the number
   banned. Use a dedicated number, not a manager's personal one.
-- The panel is protected by a single shared password (`ADMIN_PASSWORD`), so the
-  audit log attributes panel opens to "Admin panel" rather than to a person.
-  Per-admin accounts are the upgrade path if that matters.
+- The panel is protected by a single shared password, so the audit log
+  attributes panel opens to "Admin panel" rather than to a person. Per-admin
+  accounts are the upgrade path if that matters.
+- `ADMIN_PASSWORD` only seeds the password on **first boot** — hashed with
+  scrypt into `Credentials` (`src/security/passwords.js`,
+  `src/db/models/Credentials.js`), same pattern as `WA_GROUP_ID` and
+  `DEFAULT_COUNTRY_CODE`. After that, Settings → Admin password owns it, and
+  changing the env var does nothing; changing it there requires the current
+  password, so a stolen session cookie alone can't lock the real admin out.
 
 ## Background
 

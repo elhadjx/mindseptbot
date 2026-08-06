@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { config } = require('../config');
+const { hashPassword, verifyPassword } = require('../security/passwords');
 
 const COOKIE_NAME = 'mindsept_admin';
 
@@ -83,6 +84,8 @@ module.exports = {
   issueToken,
   requireAuth,
   safeEqual,
+  hashPassword,
+  verifyPassword,
   tooManyLoginAttempts,
   recordLoginAttempt,
   clearLoginAttempts,

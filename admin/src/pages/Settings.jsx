@@ -472,6 +472,90 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
         </div>
       </Card>
 
+      <AdminPasswordCard />
     </form>
+  );
+}
+
+/**
+ * Not part of the settings document, and not wired to the form above's onSubmit
+ * - a nested <form> would be invalid HTML, and a password change deserves its
+ * own confirmation rather than riding along with an unrelated settings save.
+ */
+function AdminPasswordCard() {
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  const mismatch = confirm.length > 0 && next !== confirm;
+  const canSubmit = current && next.length >= 8 && next === confirm && !busy;
+
+  async function changePassword() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      await api.changePassword(current, next);
+      setMsg({ ok: true, message: 'Password changed.' });
+      setCurrent('');
+      setNext('');
+      setConfirm('');
+    } catch (err) {
+      setMsg({
+        ok: false,
+        message: err.message === 'too_many_attempts' ? 'Too many attempts. Wait a few minutes.' : err.message,
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card
+      title="Admin password"
+      hint="Who can sign in to this panel. Doesn't affect the WhatsApp link or the whitelist."
+    >
+      <div className="grid-2">
+        <Field label="Current password">
+          <input
+            className="input"
+            type="password"
+            autoComplete="current-password"
+            value={current}
+            onChange={(e) => setCurrent(e.target.value)}
+          />
+        </Field>
+        <div />
+        <Field label="New password" hint="At least 8 characters.">
+          <input
+            className="input"
+            type="password"
+            autoComplete="new-password"
+            value={next}
+            onChange={(e) => setNext(e.target.value)}
+          />
+        </Field>
+        <Field label="Confirm new password" hint={mismatch ? "Doesn't match yet." : undefined}>
+          <input
+            className="input"
+            type="password"
+            autoComplete="new-password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+          />
+        </Field>
+      </div>
+
+      {msg && (
+        <div className={`banner ${msg.ok ? 'banner--ok' : ''}`} style={{ marginBottom: 'var(--sp-4)' }}>
+          {msg.message}
+        </div>
+      )}
+
+      <button type="button" className="btn" disabled={!canSubmit} onClick={changePassword}>
+        {busy ? 'Changing…' : 'Change password'}
+      </button>
+    </Card>
   );
 }

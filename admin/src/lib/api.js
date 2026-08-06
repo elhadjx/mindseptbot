@@ -24,6 +24,8 @@ export const api = {
   session: () => request('/auth/session'),
   login: (password) => request('/auth/login', { method: 'POST', body: { password } }),
   logout: () => request('/auth/logout', { method: 'POST' }),
+  changePassword: (currentPassword, newPassword) =>
+    request('/auth/password', { method: 'POST', body: { currentPassword, newPassword } }),
 
   status: () => request('/status'),
   unlinkWhatsApp: () => request('/status/logout', { method: 'POST' }),

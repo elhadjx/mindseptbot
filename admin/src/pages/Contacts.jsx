@@ -102,7 +102,7 @@ export default function Contacts({ waReady }) {
 
       <Card
         title={contacts ? `${filtered.length} of ${contacts.length} contacts` : 'From the linked phone'}
-        hint="Synced from the linked phone. Someone saved a moment ago may not appear until WhatsApp syncs, Refresh re-reads the list."
+        hint="Synced from the linked phone. Someone saved a moment ago may not appear until WhatsApp syncs — Refresh re-reads the list."
         actions={
           <button
             type="button"
@@ -114,7 +114,7 @@ export default function Contacts({ waReady }) {
           </button>
         }
       >
-        {!waReady && <Empty>Connect WhatsApp first, the contact list comes from the phone.</Empty>}
+        {!waReady && <Empty>Connect WhatsApp first — the contact list comes from the phone.</Empty>}
 
         {waReady && (
           <>
@@ -123,7 +123,7 @@ export default function Contacts({ waReady }) {
                 <Field label="Search">
                   <input
                     className="input"
-                    placeholder="Name or number, 0549… works too"
+                    placeholder="Name or number — 0549… works too"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                   />

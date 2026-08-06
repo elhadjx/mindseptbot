@@ -2,7 +2,7 @@
 
 ## Project
 
-Mindsept door access, a WhatsApp bot plus an admin panel that lets whitelisted
+Mindsept door access — a WhatsApp bot plus an admin panel that lets whitelisted
 coworkers open the coworking space's front door themselves, without a manager
 having to do it from the SmartLife app.
 
@@ -12,10 +12,10 @@ Phase 1: the bot, the whitelist, the audit log and the panel.
 ## How it works
 
 1. A member sends `/open` (or `ouvre`, `porte`, …) in **one of the WhatsApp groups the
-   bot is configured to listen in** (managed from Settings → Groups), or, when
-   Settings → Private conversations is on, **directly to the bot in a one-to-one
+   bot is configured to listen in** (managed from Settings → Groups), or — when
+   Settings → Private conversations is on — **directly to the bot in a one-to-one
    chat**.
-2. The bot, a `whatsapp-web.js` client running headless Chromium, sees the message,
+2. The bot — a `whatsapp-web.js` client running headless Chromium — sees the message,
    identifies the sender, and checks them against a whitelist in MongoDB.
 3. On success it pulses the front door relay through the Tuya Cloud API and reacts
    ✅ to the message. Denials get ⛔, failures ⚠️.
@@ -24,11 +24,11 @@ Phase 1: the bot, the whitelist, the audit log and the panel.
 ## Stack constraints
 
 - **JS/TS only. No Python anywhere in this repo.**
-- Node/Express backend (CommonJS). React + Vite admin panel (ESM), the only
+- Node/Express backend (CommonJS). React + Vite admin panel (ESM) — the only
   build step in the repo.
 - Door control goes through the **Tuya Cloud API** (`/v1.0/token`,
   `/v1.0/iot-03/devices/{id}/commands`), signed directly with Node's built-in
-  `crypto`/`fetch` (`src/doors/tuya-cloud.js`), deliberately not the official
+  `crypto`/`fetch` (`src/doors/tuya-cloud.js`) — deliberately not the official
   `@tuya/tuya-connector-nodejs` SDK, which pulls a vulnerable, unpatched `axios`.
 - WhatsApp session persistence uses `RemoteAuth` with our own GridFS store
   (`src/whatsapp/mongo-session-store.js`), so the session survives Railway's
@@ -61,13 +61,13 @@ resolvable at all. Matching a whitelist on phone number alone silently denies
 everyone once a group flips to LID addressing.
 
 So every `User` stores both `waId` (the raw JID exactly as it appears on
-messages, the exact-match fast path) and `phone` where known, and
+messages — the exact-match fast path) and `phone` where known, and
 `User.findAuthorized` matches on either. `src/whatsapp/identity.js` enriches one
 into the other on a best-effort basis by reusing whatsapp-web.js's own injected
 helper, `window.WWebJS.enforceLidAndPnRetrieval`.
 
-Practical consequence: **enroll members from a list WhatsApp gave us**, the
-Members screen's group participant list, or the Contacts screen, rather than by
+Practical consequence: **enroll members from a list WhatsApp gave us** — the
+Members screen's group participant list, or the Contacts screen — rather than by
 typing phone numbers. That captures the exact `waId` the bot will see. Enrolling
 from Contacts sends only a `waId`, so `POST /api/members` resolves the LID and
 phone server-side for that one person (`enrich()` in `src/http/routes/members.js`);
@@ -84,7 +84,7 @@ saving, and the server rejects anything implausible rather than storing junk.
 Two rules carry the weight:
 
 - **`identity.digitsOnly` is deliberately not this function.** It parses the user
-  part out of a JID, where the number is already exact, giving it country-code
+  part out of a JID, where the number is already exact — giving it country-code
   logic would mangle a LID like `18712345678901@lid`.
 - **10+ digits with no leading zero is treated as already complete.** That is what
   stops a French member typed as `33612345678` becoming `21333612345678`. A
@@ -92,7 +92,7 @@ Two rules carry the weight:
 
 `backfillPhones()` runs at boot from `src/index.js`, repairing members enrolled
 before this existed. It is idempotent and timid on purpose: it only rewrites
-phones starting with `0`, only rewrites a `waId` that was _derived_ from the bad
+phones starting with `0`, only rewrites a `waId` that was *derived* from the bad
 phone (never a `@lid` or a JID captured from a real message), and logs and skips
 unique-index collisions rather than failing the boot. Anything else that looks
 odd is logged for a human instead of being rewritten.
@@ -110,7 +110,7 @@ default `emoji`/`text`, and an entry in `OUTCOME_DECISION`.
 
 Notes:
 
-- An empty emoji or text means _stay silent on that outcome_, it is a real
+- An empty emoji or text means *stay silent on that outcome* — it is a real
   choice, not a missing value, and is never replaced by the default.
 - `{name}` and `{door}` are substituted. Unknown placeholders are left visible
   rather than blanked, so a typo shows up instead of vanishing.
@@ -121,46 +121,46 @@ Notes:
 
 ## Test mode
 
-Settings → Test mode runs the entire pipeline, group scope, whitelist, rate
-limits, replies, audit log, but never sends the Tuya command. Use it to try the
+Settings → Test mode runs the entire pipeline — group scope, whitelist, rate
+limits, replies, audit log — but never sends the Tuya command. Use it to try the
 bot out without opening a real door onto the street.
 
 The check lives inside `triggerDoor()` (`src/doors/door-service.js`), not in its
-callers, so there is no path, WhatsApp command or panel button, that can open
+callers, so there is no path — WhatsApp command or panel button — that can open
 the door while it is on.
 
 When it's on: senders get 🧪 instead of ✅ and a reply saying the door did not
 open, audit rows are flagged `simulated` and badged in the Activity table, and
-the panel shows a banner on every page. All of that is deliberate, a test mode
+the panel shows a banner on every page. All of that is deliberate — a test mode
 that looks like success is worse than no test mode.
 
 ## Safety properties worth preserving
 
-These are all covered by `npm test`, don't regress them:
+These are all covered by `npm test` — don't regress them:
 
 - **Chat scope.** `Settings.chatScope()` is the single gate. Groups must be in
-  `Settings.groups` _and_ enabled; one-to-one chats are honoured only when
-  `allowDirectMessages` is on. Everything else, other groups, `status@broadcast`,
-  broadcast lists, `@newsletter` channels, and our own messages, is dropped
-  before anything is logged. The server allowlists the JID _servers_ it accepts
+  `Settings.groups` *and* enabled; one-to-one chats are honoured only when
+  `allowDirectMessages` is on. Everything else — other groups, `status@broadcast`,
+  broadcast lists, `@newsletter` channels, and our own messages — is dropped
+  before anything is logged. The server allowlists the JID *servers* it accepts
   (`g.us`, `c.us`, `lid`) rather than treating "not a group" as "must be a DM",
   which would put status replies in scope the moment DMs were switched on. The
-  settings API still refuses any id that isn't `@g.us` in the `groups` list,
+  settings API still refuses any id that isn't `@g.us` in the `groups` list —
   DMs are a separate switch, not a group entry.
-- **Strangers in a DM get no reply.** A non-whitelisted sender in a _group_ gets
+- **Strangers in a DM get no reply.** A non-whitelisted sender in a *group* gets
   ⛔; in a DM the denial is logged and answered with silence, so the bot never
   confirms to someone guessing numbers that this line runs a door bot. Denials
   are not rate limited, which is the other half of the reason.
 - **Message freshness.** Commands older than `maxMessageAgeSec` (default 90s) are
   ignored. Without this, whatsapp-web.js replaying a backlog after a reconnect
   would fire the relay once per old "open" message.
-- **Anchored keyword matching.** A command must _start_ the message, so "je peux
+- **Anchored keyword matching.** A command must *start* the message, so "je peux
   pas ouvre" is chatter, not an open.
 - **Rate limits.** Per-member and global sliding windows.
 - **Deny-by-default,** and every denial is logged with a reason.
 - **The process does not exit on an unhandled rejection.** RemoteAuth backs up
   on a `setInterval(async …)` with no catch, so one failed backup would
-  otherwise terminate the process, dropping the very session it was protecting
+  otherwise terminate the process — dropping the very session it was protecting
   and forcing a re-scan. `installCrashGuards()` in `src/index.js` logs and
   keeps the door working instead.
 
@@ -168,7 +168,7 @@ These are all covered by `npm test`, don't regress them:
 
 Everything below cost real debugging time. The library does a lot of its work
 inside WhatsApp's own minified bundle, so failures often arrive as a
-single-letter message like `Error: r`, always log the full error server-side.
+single-letter message like `Error: r` — always log the full error server-side.
 
 **Don't use `client.getChatById()` to read a group either.** Same underlying
 helper (`getChatModel`), same failure. `listParticipants()` in
@@ -177,7 +177,7 @@ cached, and never lets a failed refresh discard what it already had.
 
 **`client.getContacts()` is better behaved, but still not safe enough.** No
 metadata refresh and no LID migration, but it runs one `Promise.all` over every
-contact and calls `contact.serialize()` on each, and `getContactModel` is
+contact and calls `contact.serialize()` on each — and `getContactModel` is
 synchronous code that can throw (`createWidFromWidLike`, `getAlternateUserWid`,
 the `Blocklist` lookup), so one bad contact rejects the whole listing.
 `src/whatsapp/contacts.js` reads the collection and projects only the fields the
@@ -185,9 +185,9 @@ panel needs, per contact, in a try/catch, keeping `getContacts()` as a fallback.
 The result is cached for five minutes in `src/http/routes/contacts.js`.
 
 **Don't use `client.getChats()` to list groups.** Its injected helper builds a
-full model for _every_ chat in the account, and for each group that includes an
+full model for *every* chat in the account, and for each group that includes an
 `await groupMetadata.update()` network round-trip plus LID migration of every
-participant, all inside one `Promise.all`. A single unhappy chat rejects the
+participant — all inside one `Promise.all`. A single unhappy chat rejects the
 entire listing. `src/whatsapp/groups.js` reads id/name/size straight off the
 chat collection instead, tolerates per-chat failures, and keeps `getChats()`
 only as a fallback. Covered by `test/groups.test.js`.
@@ -201,7 +201,7 @@ only as a fallback. Covered by `test/groups.test.js`.
    `RemoteAuth.compressSession()` writes it to
    `path.join(dataPath, '<session>.zip')`; `wwebjs-mongo`'s `save()` reads
    `'<session>.zip'` **relative to `process.cwd()`**. Any deployment where cwd
-   isn't `dataPath`, i.e. all of them, fails every backup with `ENOENT`, and
+   isn't `dataPath` — i.e. all of them — fails every backup with `ENOENT`, and
    because that surfaces as an unhandled `'error'` on a ReadStream it kills the
    process. The container restarts with no saved session, so you re-scan the QR,
    and it repeats forever. `src/whatsapp/mongo-session-store.js` replaces it;
@@ -211,7 +211,7 @@ only as a fallback. Covered by `test/groups.test.js`.
    `RemoteAuth.afterAuthReady()` hardcodes `await this.delay(60000)` before its
    first `storeRemoteSession`. Restart or redeploy inside that window and the
    link is gone with no trace. The Connection screen shows a warning banner
-   until the first `remote session saved` lands, wait for it before deploying.
+   until the first `remote session saved` lands — wait for it before deploying.
 
 2. **A disconnect DELETES the stored session.** `Client.js` calls
    `authStrategy.disconnect()` for any state outside
@@ -219,14 +219,14 @@ only as a fallback. Covered by `test/groups.test.js`.
    `deleteRemoteSession()`. So a transient problem doesn't just drop the
    connection, it wipes the credential and forces a new QR.
 
-   The biggest trigger is `CONFLICT`, raised whenever a second WhatsApp Web
+   The biggest trigger is `CONFLICT` — raised whenever a second WhatsApp Web
    session appears. **Two app containers is the usual cause** (an overlapping
    deploy, or a replica count above 1). We pass `takeoverOnConflict: true` so a
    conflict is reclaimed rather than treated as fatal, but the real fix is to
    never run two instances. See the deployment section.
 
    Note also that whatsapp-web.js `destroy()`s the client after emitting
-   `disconnected`, so reconnecting requires building a **new** `Client`, you
+   `disconnected`, so reconnecting requires building a **new** `Client` — you
    cannot re-`initialize()` the old one.
 
 ## Setup
@@ -240,14 +240,14 @@ npm start
 
 Then open http://localhost:3000, sign in, and:
 
-1. **Connection**, scan the QR with the phone the bot should use.
-2. **Settings**, load groups and pick the door group.
-3. **Members**, load participants and allow people.
+1. **Connection** — scan the QR with the phone the bot should use.
+2. **Settings** — load groups and pick the door group.
+3. **Members** — load participants and allow people.
 
 For panel development with hot reload, run `npm start` and `npm run dev:admin`
 in parallel; Vite proxies `/api` to port 3000.
 
-Run the tests, the session store round-trip and the authorization pipeline
+Run the tests — the session store round-trip and the authorization pipeline
 (needs a local Mongo; uses a scratch database):
 
 ```bash
@@ -256,18 +256,18 @@ MONGODB_URI=mongodb://localhost:27017/mindsept-test npm test
 
 ## Deployment (Railway)
 
-Use the `Dockerfile`, not Nixpacks, `whatsapp-web.js` drives a real browser and
+Use the `Dockerfile`, not Nixpacks — `whatsapp-web.js` drives a real browser and
 the image installs Debian's `chromium` for it.
 
 - **Give the service ~1GB of RAM.** Chromium will OOM-loop on 512MB.
 - Set every var in `.env.example` in the Railway environment. Reference the
   database service rather than pasting a URL, and append a database name:
-  `MONGODB_URI=${{MongoDB.MONGO_URL}}/mindsept`, without the name, Mongoose
+  `MONGODB_URI=${{MongoDB.MONGO_URL}}/mindsept` — without the name, Mongoose
   silently uses a database called `test`.
 - **Exactly one replica, and no overlapping deploys.** Two containers means two
   WhatsApp Web sessions, which means `CONFLICT`, which (see above) destroys the
   stored session. Railway's default rolling deploy briefly runs old and new
-  together, turn that off for this service.
+  together — turn that off for this service.
 - Run the app and the panel as **one service**; the panel reads the live client
   in-process (QR, `getChats()`, participants) and there is nothing to gain by
   splitting them, since the bot can never be scaled past one instance anyway.
@@ -281,7 +281,7 @@ the image installs Debian's `chromium` for it.
 - The panel is protected by a single shared password, so the audit log
   attributes panel opens to "Admin panel" rather than to a person. Per-admin
   accounts are the upgrade path if that matters.
-- `ADMIN_PASSWORD` only seeds the password on **first boot**, hashed with
+- `ADMIN_PASSWORD` only seeds the password on **first boot** — hashed with
   scrypt into `Credentials` (`src/security/passwords.js`,
   `src/db/models/Credentials.js`), same pattern as `WA_GROUP_ID` and
   `DEFAULT_COUNTRY_CODE`. After that, Settings → Admin password owns it, and
@@ -299,11 +299,11 @@ the image installs Debian's `chromium` for it.
 ## Local control attempt (abandoned in Phase 0)
 
 Local control (`tuyapi`, LAN-only, no cloud dependency) was the original plan and
-is still preferable long-term, it removes any dependency on Tuya's servers. It
+is still preferable long-term — it removes any dependency on Tuya's servers. It
 was abandoned because:
 
 - The two doors are Zigbee sub-devices on one gateway (a Tuya "Multi Mode Gateway",
-  model ZXGWMM-01), they have no local key or IP of their own; local control means
+  model ZXGWMM-01) — they have no local key or IP of their own; local control means
   connecting to the gateway and addressing each sub-device by its own id as `cid`.
 - The gateway's local key, pulled via two independent official Tuya APIs (IoT
   Platform console and the `tinytuya` Cloud API), consistently fails HMAC
@@ -318,7 +318,7 @@ was abandoned because:
 
 - **Inner door ("porte Mind7") remote unlock.** It's a smart lock (Tuya category
   `jtmspro`, model AT1), not a plain relay switch. Its debug command list has no
-  simple "unlock" DP, the app opens it via Tuya's separate, ticket-based Smart
+  simple "unlock" DP — the app opens it via Tuya's separate, ticket-based Smart
   Lock unlock flow (a provisioned per-user credential, not a stateless command),
   which needs its own investigation. The front door works today; the inner door
   intentionally returns an "unsupported" error until this is implemented.
@@ -329,6 +329,6 @@ was abandoned because:
 
 - **Momentary pulse vs. persistent unlock state:** confirmed momentary. Device logs
   show the front door's `switch_1` DP going `true` → `false` about 1 second later
-  on every real open, matches the default `RELAY_PULSE_MS=1000`.
+  on every real open — matches the default `RELAY_PULSE_MS=1000`.
 - **Device addressing:** each door is its own Tuya device id in the linked device
   list; cloud commands address that id directly (no gateway/local-key involved).

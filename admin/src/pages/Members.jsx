@@ -145,7 +145,7 @@ export default function Members({ settings }) {
 
       <Card
         title="From the group"
-        hint="Enrol people straight off the participant list — that captures the exact WhatsApp id the bot will see."
+        hint="Enrol people straight off the participant list, that captures the exact WhatsApp id the bot will see."
         actions={
           <div className="row">
             {groups.length > 1 && (
@@ -178,7 +178,7 @@ export default function Members({ settings }) {
         {!participants && (
           <Empty>
             {groups.length === 0
-              ? 'No groups configured yet — add one in Settings.'
+              ? 'No groups configured yet, add one in Settings.'
               : 'Load the group to see who is in it.'}
           </Empty>
         )}
@@ -225,7 +225,7 @@ export default function Members({ settings }) {
 
       <Card
         title="Add by phone number"
-        hint={`For someone not in any group. Local (0…) or international (+${countryCode}…) — both work.`}
+        hint={`For someone not in any group. Local (0…) or international (+${countryCode}…), both work.`}
       >
         <form className="row" onSubmit={addManual} style={{ alignItems: 'flex-end' }}>
           <div style={{ flex: '1 1 200px' }}>

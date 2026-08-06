@@ -71,7 +71,7 @@ export default function Connection({ state, doors }) {
             ) : (
               <p className="qr-frame__placeholder">
                 {state.status === 'ready'
-                  ? 'Linked — no code needed.'
+                  ? 'Linked, no code needed.'
                   : 'Waiting for a code…'}
               </p>
             )}
@@ -116,7 +116,7 @@ export default function Connection({ state, doors }) {
             */}
             {state.status === 'ready' && !state.sessionBackedUp && (
               <div className="banner">
-                Linked, but the session is not saved to the database yet — this takes about a
+                Linked, but the session is not saved to the database yet, this takes about a
                 minute. If the service restarts before then, you will have to scan again.
               </div>
             )}
@@ -137,7 +137,7 @@ export default function Connection({ state, doors }) {
               </button>
               {confirmUnlink && (
                 <span className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
-                  This wipes the saved session — you will need to scan again.
+                  This wipes the saved session, you will need to scan again.
                 </span>
               )}
             </div>

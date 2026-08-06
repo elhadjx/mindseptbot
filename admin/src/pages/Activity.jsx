@@ -121,7 +121,7 @@ export default function Activity() {
                         <div className="row" style={{ gap: 'var(--sp-2)' }}>
                           <DecisionChip decision={entry.decision} />
                           {entry.simulated && (
-                            <span className="chip chip--error" title="Test mode — the door did not open">
+                            <span className="chip chip--error" title="Test mode, the door did not open">
                               🧪 test
                             </span>
                           )}

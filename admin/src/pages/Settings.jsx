@@ -144,7 +144,7 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
 
       <Card
         title="Groups the bot listens in"
-        hint="Commands are accepted in these groups — and, if private conversations are on below, in one-to-one chats. Everything else is ignored."
+        hint="Commands are accepted in these groups, and, if private conversations are on below, in one-to-one chats. Everything else is ignored."
         actions={
           <button
             type="button"
@@ -157,7 +157,7 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
         }
       >
         {listened.length === 0 ? (
-          <Empty>Not listening anywhere yet — no command will do anything.</Empty>
+          <Empty>Not listening anywhere yet, no command will do anything.</Empty>
         ) : (
           <div className="stack" style={{ marginBottom: 'var(--sp-4)' }}>
             {listened.map((group) => (
@@ -195,7 +195,7 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
                 if (group) addGroup({ id: group.id, name: group.name, enabled: true });
               }}
             >
-              <option value="">— pick a group to add —</option>
+              <option value="">— pick a group to add,</option>
               {groups
                 .filter((g) => !listened.some((l) => l.id === g.id))
                 .map((g) => (
@@ -216,7 +216,7 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
               groups
                 ? 'No groups found for this number. Paste an id ending in @g.us, or send a message in the group and hit Refresh.'
                 : waReady
-                  ? 'Ends with @g.us. The list above is easier — hit Refresh.'
+                  ? 'Ends with @g.us. The list above is easier, hit Refresh.'
                   : 'The group list appears automatically once WhatsApp is connected.'
             }
           >
@@ -252,12 +252,12 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
           <div>
             <div style={{ fontWeight: 600 }}>
               {draft.allowDirectMessages
-                ? 'On — members can DM the bot'
-                : 'Off — only the groups above'}
+                ? 'On, members can DM the bot'
+                : 'Off, only the groups above'}
             </div>
             <div className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
               The whitelist still decides who may open. Someone who isn’t a member gets no reply at
-              all — their attempt is only written to Activity, so the bot never announces itself to
+              all, their attempt is only written to Activity, so the bot never announces itself to
               a stranger.
             </div>
           </div>
@@ -271,12 +271,12 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
 
       <Card
         title="Test mode"
-        hint="Runs everything — whitelist, limits, replies, audit log — but never sends the command to the door."
+        hint="Runs everything, whitelist, limits, replies, audit log, but never sends the command to the door."
       >
         <div className="spread">
           <div>
             <div style={{ fontWeight: 600 }}>
-              {draft.testMode ? 'On — the door will not open' : 'Off — commands open the real door'}
+              {draft.testMode ? 'On, the door will not open' : 'Off, commands open the real door'}
             </div>
             <div className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
               Members get a 🧪 reaction instead of ✅, and the log marks these entries as simulated.
@@ -322,9 +322,9 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
         title="What the bot replies"
         hint={
           draft.replyMode === 'react'
-            ? 'Only the reactions are used right now — switch "How the bot answers" above to send text too.'
+            ? 'Only the reactions are used right now, switch "How the bot answers" above to send text too.'
             : draft.replyMode === 'text'
-              ? 'Only the text is used right now — switch "How the bot answers" above to react too.'
+              ? 'Only the text is used right now, switch "How the bot answers" above to react too.'
               : 'Both the reaction and the text are sent.'
         }
         actions={

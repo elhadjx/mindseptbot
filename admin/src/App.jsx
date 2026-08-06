@@ -3,12 +3,14 @@ import { api } from './lib/api';
 import Login from './pages/Login';
 import Connection from './pages/Connection';
 import Members from './pages/Members';
+import Contacts from './pages/Contacts';
 import Activity from './pages/Activity';
 import Settings from './pages/Settings';
 
 const PAGES = [
   { key: 'connection', label: 'Connection', icon: '◍' },
   { key: 'members', label: 'Members', icon: '❧' },
+  { key: 'contacts', label: 'Contacts', icon: '☏' },
   { key: 'activity', label: 'Activity', icon: '≋' },
   { key: 'settings', label: 'Settings', icon: '✿' },
 ];
@@ -158,6 +160,7 @@ export default function App() {
 
         {page === 'connection' && <Connection state={waState} doors={doors} />}
         {page === 'members' && <Members settings={settings} />}
+        {page === 'contacts' && <Contacts waReady={waState.status === 'ready'} />}
         {page === 'activity' && <Activity />}
         {page === 'settings' && (
           <Settings

@@ -109,6 +109,7 @@ export default function Activity() {
                     <th>Who</th>
                     <th>Door</th>
                     <th>Command</th>
+                    <th>Where</th>
                     <th>Detail</th>
                   </tr>
                 </thead>
@@ -134,6 +135,21 @@ export default function Activity() {
                       </td>
                       <td>{entry.door || '—'}</td>
                       <td className="mono">{entry.command || '—'}</td>
+                      <td>
+                        {/* chatType is absent on rows written before one-to-one
+                            chats existed - those were always groups. */}
+                        {entry.chatType === 'dm' ? (
+                          <span className="chip" title={entry.chatId || ''}>
+                            private
+                          </span>
+                        ) : entry.chatType === 'group' || entry.groupId ? (
+                          <span className="chip" title={entry.groupId || entry.chatId || ''}>
+                            group
+                          </span>
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
+                      </td>
                       <td className="muted">
                         {entry.reason || (entry.durationMs != null ? `${entry.durationMs}ms` : '—')}
                         {entry.source === 'panel' && (

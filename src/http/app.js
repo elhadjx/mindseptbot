@@ -6,6 +6,7 @@ const { requireAuth } = require('./auth');
 const authRoutes = require('./routes/auth');
 const statusRoutes = require('./routes/status');
 const groupRoutes = require('./routes/groups');
+const contactRoutes = require('./routes/contacts');
 const memberRoutes = require('./routes/members');
 const logRoutes = require('./routes/logs');
 const settingsRoutes = require('./routes/settings');
@@ -30,6 +31,7 @@ function createApp() {
   app.use('/api', requireAuth);
   app.use('/api/status', statusRoutes);
   app.use('/api/groups', groupRoutes);
+  app.use('/api/contacts', contactRoutes);
   app.use('/api/members', memberRoutes);
   app.use('/api/logs', logRoutes);
   app.use('/api/settings', settingsRoutes);

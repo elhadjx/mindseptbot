@@ -43,6 +43,7 @@ const Settings = require('../src/db/models/Settings');
 const User = require('../src/db/models/User');
 const AuditLog = require('../src/db/models/AuditLog');
 const { handleMessage } = require('../src/whatsapp/handlers');
+const { backfillPhones } = require('../src/whatsapp/phone');
 const rateLimiter = require('../src/whatsapp/rate-limiter');
 
 const GROUP = '120363000000000000@g.us';
@@ -55,13 +56,14 @@ const OTHER_GROUP = '120363999999999999@g.us';
 const client = { pupPage: null };
 
 let n = 0;
-function makeMsg({ from = GROUP, author, body, ageSec = 0 }) {
+function makeMsg({ from = GROUP, author, body, ageSec = 0, fromMe = false }) {
   const reactions = [];
   const replies = [];
   return {
     from,
     author,
     body,
+    fromMe,
     timestamp: Math.floor(Date.now() / 1000) - ageSec,
     id: { _serialized: `msg-${++n}` },
     react: async (e) => reactions.push(e),
@@ -265,6 +267,88 @@ async function main() {
   log = await AuditLog.findOne().sort({ at: -1 });
   check('  and that entry is not marked simulated', log?.simulated === false);
 
+  console.log('\n-- direct messages --');
+  // A DM has no author: msg.from IS the sender.
+  const DM = '212661111111@c.us';
+  const STRANGER_DM = '212669999999@c.us';
+  const LID_DM = '99988877766655@lid';
+
+  rateLimiter.reset();
+  let logsBefore = await AuditLog.countDocuments();
+  let opensBefore = opens.length;
+  m = makeMsg({ from: DM, body: '/open' });
+  await handleMessage(client, m);
+  check('DMs are ignored while the setting is off', opens.length === opensBefore);
+  check('  and not logged', (await AuditLog.countDocuments()) === logsBefore);
+
+  settings.allowDirectMessages = true;
+  await settings.save();
+
+  rateLimiter.reset();
+  m = makeMsg({ from: DM, body: '/open' });
+  await handleMessage(client, m);
+  check('a member can open from a DM once enabled', opens.length - opensBefore === 1);
+  log = await AuditLog.findOne().sort({ at: -1 });
+  check('  logged as a dm', log?.chatType === 'dm', log?.chatType);
+  check('  chatId is the sender', log?.chatId === DM, log?.chatId);
+  check('  groupId stays empty for a DM', log?.groupId === null, String(log?.groupId));
+
+  rateLimiter.reset();
+  opensBefore = opens.length;
+  m = makeMsg({ from: LID_DM, body: 'ouvre' });
+  await handleMessage(client, m);
+  check('a LID-addressed DM works too', opens.length - opensBefore === 1);
+
+  // The stranger case: logged so an admin can see the attempt, but silent, so
+  // the bot never confirms itself to someone guessing numbers.
+  rateLimiter.reset();
+  logsBefore = await AuditLog.countDocuments();
+  m = makeMsg({ from: STRANGER_DM, body: '/open' });
+  await handleMessage(client, m);
+  check('a stranger DM is denied silently', m.reactions.length === 0 && m.replies.length === 0);
+  check('  but still logged', (await AuditLog.countDocuments()) === logsBefore + 1);
+  log = await AuditLog.findOne().sort({ at: -1 });
+  check('  with the reason', log?.decision === 'denied' && log?.reason === 'not_whitelisted');
+  check('  and marked as a dm', log?.chatType === 'dm');
+
+  // A group denial must still be answered - nothing about DMs changed that.
+  rateLimiter.reset();
+  m = makeMsg({ author: '212669999999@c.us', body: '/open' });
+  await handleMessage(client, m);
+  check('group denials still get a reaction', m.reactions[0] === '⛔', m.reactions[0]);
+
+  console.log('\n-- out of scope even with DMs on --');
+  rateLimiter.reset();
+  logsBefore = await AuditLog.countDocuments();
+  opensBefore = opens.length;
+  for (const from of ['status@broadcast', '120363000000000000@broadcast', 'abc@newsletter']) {
+    m = makeMsg({ from, body: '/open' });
+    await handleMessage(client, m);
+  }
+  m = makeMsg({ from: DM, body: '/open', fromMe: true });
+  await handleMessage(client, m);
+  m = makeMsg({ from: DM, body: '/open', ageSec: 600 });
+  await handleMessage(client, m);
+  check(
+    'status, broadcast, channels, own and stale messages all ignored',
+    opens.length === opensBefore
+  );
+  check('  and none of them logged', (await AuditLog.countDocuments()) === logsBefore);
+
+  rateLimiter.reset();
+  opensBefore = opens.length;
+  m = makeMsg({ author: '212661111111@c.us', body: '/open' });
+  await handleMessage(client, m);
+  check('groups still work with DMs enabled', opens.length - opensBefore === 1);
+
+  settings.allowDirectMessages = false;
+  await settings.save();
+  rateLimiter.reset();
+  opensBefore = opens.length;
+  m = makeMsg({ from: DM, body: '/open' });
+  await handleMessage(client, m);
+  check('turning DMs back off takes effect immediately', opens.length === opensBefore);
+
   console.log('\n-- rate limiting --');
   rateLimiter.reset();
   const before = opens.length;
@@ -279,6 +363,52 @@ async function main() {
   check('  4th attempt denied', msgs[3].reactions[0] === '⏳', msgs[3].reactions[0]);
   log = await AuditLog.findOne({ decision: 'denied' }).sort({ at: -1 });
   check('  rate-limit denial logged with reason', /rate_limited_user/.test(log?.reason || ''), log?.reason);
+
+  console.log('\n-- phone backfill --');
+  const national = await User.create({
+    waId: '0549212025@c.us',
+    phone: '0549212025',
+    displayName: 'National Number',
+  });
+  const foreign = await User.create({
+    waId: '33612345678@c.us',
+    phone: '33612345678',
+    displayName: 'Foreign Member',
+  });
+  // A LID member whose phone was typed in national format: the phone is fixed,
+  // the waId is not, because that JID is what WhatsApp actually sends.
+  const lidMember = await User.create({
+    waId: '77766655544433@lid',
+    lid: '77766655544433@lid',
+    phone: '0549333222',
+    displayName: 'Lid Member',
+  });
+  // Collision: this one normalises straight onto an existing row.
+  await User.create({ phone: '213777000111', waId: '213777000111@c.us', displayName: 'Already Canonical' });
+  const dupe = await User.create({ phone: '0777000111', waId: '0777000111@c.us', displayName: 'Same Person Again' });
+
+  const summary = await backfillPhones(User, '213');
+
+  let after = await User.findById(national._id);
+  check('national number is normalised', after.phone === '213549212025', after.phone);
+  check('  and its derived waId with it', after.waId === '213549212025@c.us', after.waId);
+
+  after = await User.findById(foreign._id);
+  check('a foreign number is left alone', after.phone === '33612345678', after.phone);
+  check('  and so is its waId', after.waId === '33612345678@c.us', after.waId);
+
+  after = await User.findById(lidMember._id);
+  check('a LID member gets its phone fixed', after.phone === '213549333222', after.phone);
+  check('  but the LID waId is never rewritten', after.waId === '77766655544433@lid', after.waId);
+
+  after = await User.findById(dupe._id);
+  check('a colliding row is skipped, not lost', after.phone === '0777000111', after.phone);
+  check('  and reported', summary.skipped === 1, JSON.stringify(summary));
+  check('  the other two normalised', summary.updated === 2, JSON.stringify(summary));
+
+  // Idempotent: a second pass has nothing left to do.
+  const second = await backfillPhones(User, '213');
+  check('running it again changes nothing', second.updated === 0, JSON.stringify(second));
 
   console.log(`\n${passed} passed, ${failed} failed`);
   await mongoose.disconnect();

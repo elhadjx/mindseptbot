@@ -39,7 +39,7 @@ async function respond(msg, settings, outcome, vars = {}) {
 }
 
 /**
- * The full pipeline for one incoming group message.
+ * The full pipeline for one incoming message.
  *
  * Order matters: scope and freshness are checked before anything expensive or
  * anything that writes, so unrelated chatter costs almost nothing and can't
@@ -48,9 +48,15 @@ async function respond(msg, settings, outcome, vars = {}) {
 async function handleMessage(client, msg) {
   const settings = await Settings.load();
 
-  // 1. Scope - only the configured groups. DMs and other groups are dropped
-  //    silently and without a log entry.
-  if (!settings.listensTo(msg.from)) return;
+  // Our own messages are never commands. MESSAGE_RECEIVED normally doesn't
+  // carry them, but a takeover or a sync can.
+  if (msg.fromMe) return;
+
+  // 1. Scope - the configured groups, plus one-to-one chats when those are
+  //    enabled. Everything else (other groups, status, broadcast lists,
+  //    channels) is dropped silently and without a log entry.
+  const scope = settings.chatScope(msg.from);
+  if (!scope) return;
 
   // 2. Freshness - on reconnect whatsapp-web.js can replay a backlog. Without
   //    this guard, an hour-old "/open" would fire the relay on every restart.
@@ -74,7 +80,9 @@ async function handleMessage(client, msg) {
     actorName: identity.name,
     door: command.door,
     command: command.raw,
-    groupId: msg.from,
+    chatType: scope,
+    chatId: msg.from,
+    groupId: scope === 'group' ? msg.from : null,
     messageId: msg.id?._serialized || null,
   };
 
@@ -86,16 +94,19 @@ async function handleMessage(client, msg) {
 
   // `outcome` picks the wording; `reason` is the machine-readable audit note,
   // which carries detail (counts, limits) we don't want in a group message.
-  const deny = async (outcome, reason) => {
+  const deny = async (outcome, reason, { silent = false } = {}) => {
     await record({ ...base, decision: 'denied', reason });
-    await respond(msg, settings, outcome, vars);
+    if (!silent) await respond(msg, settings, outcome, vars);
   };
 
   // 5. Authorize.
   const user = await User.findAuthorized(identity);
   if (!user) {
     console.log(`[wa] denied ${identity.waId} (${identity.phone || 'no phone'}) - not whitelisted`);
-    return deny('denied_not_whitelisted', 'not_whitelisted');
+    // In a group, ⛔ is useful feedback to someone already in a room we trust.
+    // In a DM it answers a stranger, confirming this number runs a door bot to
+    // anyone who guesses it - and denials aren't rate limited. Log, stay quiet.
+    return deny('denied_not_whitelisted', 'not_whitelisted', { silent: scope === 'dm' });
   }
 
   if (!DOORS[command.door]) {

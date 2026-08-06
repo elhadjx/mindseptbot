@@ -31,6 +31,8 @@ export const api = {
   groups: () => request('/groups'),
   participants: (groupId) => request(`/groups/${encodeURIComponent(groupId)}/participants`),
 
+  contacts: ({ refresh = false } = {}) => request(`/contacts${refresh ? '?refresh=1' : ''}`),
+
   members: () => request('/members'),
   addMember: (member) => request('/members', { method: 'POST', body: member }),
   updateMember: (id, patch) => request(`/members/${id}`, { method: 'PATCH', body: patch }),

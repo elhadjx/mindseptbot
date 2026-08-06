@@ -1,30 +1,10 @@
 const express = require('express');
-const { getClient, isReady } = require('../../whatsapp/client');
+const { getClient } = require('../../whatsapp/client');
 const { identifySender } = require('../../whatsapp/identity');
 const { listGroups, listParticipants } = require('../../whatsapp/groups');
+const { describePageError, requireReady } = require('../wa');
 
 const router = express.Router();
-
-/**
- * whatsapp-web.js runs much of its work inside WhatsApp's own minified bundle,
- * so a failure there arrives as a one-character message like "r". Passing that
- * to the panel tells nobody anything - say what we were doing instead, and keep
- * the original only when it looks like real text.
- */
-function describePageError(err, context) {
-  const message = String(err?.message || '').trim();
-  const looksMinified = message.length < 3 || /^[a-z$_]\w?$/i.test(message);
-  return looksMinified
-    ? `${context}. WhatsApp Web returned an internal error - try again, or reconnect from the Connection tab.`
-    : `${context}: ${message}`;
-}
-
-function requireReady(req, res, next) {
-  if (!isReady()) {
-    return res.status(409).json({ ok: false, error: 'whatsapp_not_ready' });
-  }
-  return next();
-}
 
 // Groups the bot number belongs to - the source list for the Settings picker.
 router.get('/', requireReady, async (req, res) => {

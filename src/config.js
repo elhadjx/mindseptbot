@@ -44,6 +44,11 @@ const config = {
 
   mongoUri: required('MONGODB_URI'),
 
+  // Prepended to member phone numbers typed in national format ("0549212025").
+  // Only seeds the Settings singleton on first boot; the panel owns it after
+  // that. 213 = Algeria.
+  defaultCountryCode: (process.env.DEFAULT_COUNTRY_CODE || '213').replace(/\D/g, ''),
+
   admin: {
     password: required('ADMIN_PASSWORD'),
     sessionSecret: required('SESSION_SECRET'),

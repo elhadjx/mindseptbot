@@ -1,6 +1,8 @@
 const { config } = require('./config');
 const { connectMongo } = require('./db/mongo');
 const Settings = require('./db/models/Settings');
+const User = require('./db/models/User');
+const { backfillPhones } = require('./whatsapp/phone');
 const { createApp } = require('./http/app');
 const { startWhatsApp, stopWhatsApp, getClient } = require('./whatsapp/client');
 const { handleMessage } = require('./whatsapp/handlers');
@@ -23,7 +25,14 @@ async function main() {
   installCrashGuards();
 
   await connectMongo();
-  await Settings.load();
+  const settings = await Settings.load();
+
+  // Repairs members enrolled before phone normalisation existed. Idempotent, so
+  // it costs nothing on every boot after the first - which is the point: there
+  // is no migration script anyone has to remember to run.
+  await backfillPhones(User, settings.defaultCountryCode).catch((err) =>
+    console.error('[phones] backfill failed (continuing):', err.message)
+  );
 
   // The panel comes up first and independently of WhatsApp: if linking fails,
   // an admin still needs somewhere to see the QR and the error.

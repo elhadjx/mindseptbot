@@ -18,6 +18,10 @@ const auditLogSchema = new mongoose.Schema(
 
     door: { type: String, default: null },
     command: { type: String, default: '' },
+    // Where the command came from. `groupId` predates one-to-one support and is
+    // still only ever a group, so old rows keep meaning exactly what they did.
+    chatType: { type: String, enum: ['group', 'dm', null], default: null },
+    chatId: { type: String, default: null },
     groupId: { type: String, default: null },
     messageId: { type: String, default: null },
     durationMs: { type: Number, default: null },

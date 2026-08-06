@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import { Card, Empty, Field, Flash, Toggle, useFlash, formatDateTime } from '../components/ui';
+import { makeSearch } from '../lib/search';
+import { previewPhone } from '../lib/phone';
 
 // Enrolment happens from the group's own participant list wherever possible:
 // picking someone off that list captures the exact `waId` the bot will see on
@@ -15,7 +17,12 @@ export default function Members({ settings }) {
   const [query, setQuery] = useState('');
 
   const groups = settings?.groups || [];
+  const countryCode = settings?.defaultCountryCode || '213';
   const [selectedGroup, setSelectedGroup] = useState(groups[0]?.id || '');
+
+  // What the server will actually store - shown before saving, so a mistyped
+  // number is obvious while it can still be fixed.
+  const normalizedManual = previewPhone(manual.phone, countryCode);
 
   // Keep the picker valid when Settings adds or removes groups.
   useEffect(() => {
@@ -50,10 +57,11 @@ export default function Members({ settings }) {
   }, [members]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return members;
+    const search = makeSearch(query);
+    if (!search.active) return members;
+    // Numbers match however they were typed: "0549…" finds a stored "213549…".
     return members.filter((m) =>
-      [m.displayName, m.phone, m.waId, m.note].some((v) => String(v || '').toLowerCase().includes(q))
+      search.matches([m.displayName, m.phone, m.waId, m.note], [m.phone, m.waId])
     );
   }, [members, query]);
 
@@ -130,7 +138,7 @@ export default function Members({ settings }) {
     <div className="stack">
       <div className="page-head">
         <h1>Members</h1>
-        <p>Who is allowed to open the door from the group.</p>
+        <p>Who is allowed to open the door.</p>
       </div>
 
       <Flash flash={flash} />
@@ -215,13 +223,25 @@ export default function Members({ settings }) {
         )}
       </Card>
 
-      <Card title="Add by phone number" hint="For someone not in the group yet. Digits only, with country code.">
+      <Card
+        title="Add by phone number"
+        hint={`For someone not in any group. Local (0…) or international (+${countryCode}…) — both work.`}
+      >
         <form className="row" onSubmit={addManual} style={{ alignItems: 'flex-end' }}>
           <div style={{ flex: '1 1 200px' }}>
-            <Field label="Phone number">
+            <Field
+              label="Phone number"
+              hint={
+                manual.phone.trim()
+                  ? normalizedManual
+                    ? `Saved as +${normalizedManual}`
+                    : "That doesn't look like a phone number"
+                  : undefined
+              }
+            >
               <input
                 className="input"
-                placeholder="212661234567"
+                placeholder="0549212025"
                 value={manual.phone}
                 onChange={(e) => setManual({ ...manual, phone: e.target.value })}
               />
@@ -237,7 +257,12 @@ export default function Members({ settings }) {
               />
             </Field>
           </div>
-          <button className="btn" type="submit" disabled={!manual.phone} style={{ marginBottom: 'var(--sp-4)' }}>
+          <button
+            className="btn"
+            type="submit"
+            disabled={!normalizedManual}
+            style={{ marginBottom: 'var(--sp-4)' }}
+          >
             Add
           </button>
         </form>

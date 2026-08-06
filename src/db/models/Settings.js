@@ -1,6 +1,7 @@
 const { mongoose } = require('../mongo');
 const { config } = require('../../config');
 const { OUTCOMES, defaultReplies } = require('../../whatsapp/replies');
+const { DEFAULT_COUNTRY_CODE } = require('../../whatsapp/phone');
 
 // One editable reply per outcome. An empty emoji means "don't react", an empty
 // text means "don't send a message" - both are useful for keeping the group
@@ -48,6 +49,15 @@ const settingsSchema = new mongoose.Schema(
     groupId: { type: String, default: null },
     groupName: { type: String, default: '' },
 
+    // Whether the bot also accepts commands in one-to-one chats. Off by default:
+    // turning it on means anyone who knows the number can reach the pipeline,
+    // and the whitelist becomes the only thing between them and the door.
+    allowDirectMessages: { type: Boolean, default: false },
+
+    // Country code prepended to numbers typed in national format ("0549212025").
+    // Digits only, no "+".
+    defaultCountryCode: { type: String, default: DEFAULT_COUNTRY_CODE, trim: true },
+
     commandKeywords: {
       type: [String],
       default: ['/open', '/ouvre', 'open', 'ouvre', 'porte'],
@@ -81,9 +91,30 @@ const settingsSchema = new mongoose.Schema(
   { timestamps: true, versionKey: false, _id: false }
 );
 
-/** Is this chat one we accept commands from? */
-settingsSchema.methods.listensTo = function listensTo(chatId) {
-  return this.groups.some((group) => group.enabled && group.id === chatId);
+/**
+ * What kind of chat is this, as far as the bot is concerned?
+ *
+ * The allowlist of servers is the point: WhatsApp delivers plenty of things
+ * that are neither a group nor a real conversation - status replies
+ * ("status@broadcast"), broadcast lists ("@broadcast") and channels
+ * ("@newsletter"). Matching on "not a group, so it must be a DM" would put all
+ * of those in scope the moment direct messages were switched on.
+ *
+ * @returns {'group'|'dm'|null} null means "ignore this message entirely".
+ */
+settingsSchema.methods.chatScope = function chatScope(chatId) {
+  const id = String(chatId || '');
+  const server = id.split('@')[1];
+
+  if (server === 'g.us') {
+    return this.groups.some((group) => group.enabled && group.id === id) ? 'group' : null;
+  }
+  // A one-to-one chat is "<phone>@c.us", or "<lid>@lid" when the sender's
+  // number is hidden.
+  if (server === 'c.us' || server === 'lid') {
+    return this.allowDirectMessages ? 'dm' : null;
+  }
+  return null;
 };
 
 settingsSchema.statics.load = async function load() {
@@ -94,6 +125,7 @@ settingsSchema.statics.load = async function load() {
     doc = await this.create({
       _id: 'global',
       groups: seed ? [{ id: seed, name: '', enabled: true }] : [],
+      defaultCountryCode: config.defaultCountryCode || DEFAULT_COUNTRY_CODE,
     });
     console.log('[settings] bootstrapped defaults');
     return doc;

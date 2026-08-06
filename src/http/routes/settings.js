@@ -19,6 +19,7 @@ router.get('/outcomes', (req, res) => {
 
 const EDITABLE = [
   'testMode',
+  'allowDirectMessages',
   'commandKeywords',
   'defaultDoor',
   'replyMode',
@@ -26,6 +27,7 @@ const EDITABLE = [
   'rateLimitPerUserPerMin',
   'rateLimitGlobalPerMin',
   'relayPulseMs',
+  'defaultCountryCode',
 ];
 
 router.get('/', async (req, res) => {
@@ -39,6 +41,17 @@ router.patch('/', async (req, res) => {
 
   for (const field of EDITABLE) {
     if (!(field in body)) continue;
+
+    if (field === 'defaultCountryCode') {
+      const cc = String(body[field] || '').replace(/\D/g, '');
+      // A wrong country code silently misroutes every number typed after it,
+      // so reject nonsense rather than storing it.
+      if (!cc || cc.length > 4) {
+        return res.status(400).json({ ok: false, error: 'country code must be 1-4 digits' });
+      }
+      settings.defaultCountryCode = cc;
+      continue;
+    }
 
     if (field === 'commandKeywords') {
       const keywords = (Array.isArray(body[field]) ? body[field] : [])

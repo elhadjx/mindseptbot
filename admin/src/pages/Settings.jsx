@@ -138,7 +138,7 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
 
       <Card
         title="Groups the bot listens in"
-        hint="Commands are only accepted in these groups. Messages anywhere else are ignored."
+        hint="Commands are accepted in these groups — and, if private conversations are on below, in one-to-one chats. Everything else is ignored."
         actions={
           <button
             type="button"
@@ -236,6 +236,31 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
             </div>
           </Field>
         )}
+      </Card>
+
+      <Card
+        title="Private conversations"
+        hint="Whether a member can open the door by messaging the bot directly, instead of writing in a group."
+      >
+        <div className="spread">
+          <div>
+            <div style={{ fontWeight: 600 }}>
+              {draft.allowDirectMessages
+                ? 'On — members can DM the bot'
+                : 'Off — only the groups above'}
+            </div>
+            <div className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
+              The whitelist still decides who may open. Someone who isn’t a member gets no reply at
+              all — their attempt is only written to Activity, so the bot never announces itself to
+              a stranger.
+            </div>
+          </div>
+          <Toggle
+            checked={Boolean(draft.allowDirectMessages)}
+            label="Accept commands in private conversations"
+            onChange={(v) => set('allowDirectMessages', v)}
+          />
+        </div>
       </Card>
 
       <Card
@@ -354,6 +379,26 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
             </div>
           </>
         )}
+      </Card>
+
+      <Card
+        title="Phone numbers"
+        hint="Applies to numbers typed in Members. Numbers read from WhatsApp itself are already complete and are never rewritten."
+      >
+        <Field
+          label="Default country code"
+          hint={`Digits only, no “+”. A number typed as 0549212025 is stored as +${
+            String(draft.defaultCountryCode || '213').replace(/\D/g, '') || '213'
+          }549212025.`}
+        >
+          <input
+            className="input"
+            style={{ maxWidth: '160px' }}
+            inputMode="numeric"
+            value={draft.defaultCountryCode ?? ''}
+            onChange={(e) => set('defaultCountryCode', e.target.value.replace(/\D/g, ''))}
+          />
+        </Field>
       </Card>
 
       <Card title="Limits" hint="Guard rails against spam and against replayed messages after a reconnect.">

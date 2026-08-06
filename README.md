@@ -12,7 +12,9 @@ Phase 1: the bot, the whitelist, the audit log and the panel.
 ## How it works
 
 1. A member sends `/open` (or `ouvre`, `porte`, …) in **one of the WhatsApp groups the
-   bot is configured to listen in** (managed from Settings → Groups).
+   bot is configured to listen in** (managed from Settings → Groups), or — when
+   Settings → Private conversations is on — **directly to the bot in a one-to-one
+   chat**.
 2. The bot — a `whatsapp-web.js` client running headless Chromium — sees the message,
    identifies the sender, and checks them against a whitelist in MongoDB.
 3. On success it pulses the front door relay through the Tuya Cloud API and reacts
@@ -41,11 +43,12 @@ src/
   events.js             in-process bus (WhatsApp state -> panel SSE)
   db/models/            User (whitelist), AuditLog, Settings (singleton)
   doors/                tuya-cloud.js (Phase 0, unchanged) + door-service.js
-  whatsapp/             client.js, identity.js, command-router.js,
-                        rate-limiter.js, handlers.js
+  whatsapp/             client.js, identity.js, phone.js, command-router.js,
+                        rate-limiter.js, handlers.js, groups.js, contacts.js
   http/                 express app, password auth, /api routes
 admin/                  React + Vite panel (built to admin/dist)
 test/handler.test.js    end-to-end tests for the authorization pipeline
+test/phone.test.js      phone number normalisation rules
 ```
 
 ## Identity: why members store two identifiers
@@ -62,9 +65,36 @@ messages — the exact-match fast path) and `phone` where known, and
 into the other on a best-effort basis by reusing whatsapp-web.js's own injected
 helper, `window.WWebJS.enforceLidAndPnRetrieval`.
 
-Practical consequence: **enroll members from the Members screen's group
-participant list**, not by typing phone numbers. That captures the exact `waId`
-the bot will see.
+Practical consequence: **enroll members from a list WhatsApp gave us** — the
+Members screen's group participant list, or the Contacts screen — rather than by
+typing phone numbers. That captures the exact `waId` the bot will see. Enrolling
+from Contacts sends only a `waId`, so `POST /api/members` resolves the LID and
+phone server-side for that one person (`enrich()` in `src/http/routes/members.js`);
+doing it for a whole contact list up front would be thousands of page calls.
+
+## Phone numbers
+
+Typed numbers are normalised by `src/whatsapp/phone.js` against
+`Settings.defaultCountryCode` (default `213`): `0549212025`, `+213549212025`,
+`00213549212025` and `549212025` all become `213549212025`, which is what
+WhatsApp addresses that person by. The Members form previews the result before
+saving, and the server rejects anything implausible rather than storing junk.
+
+Two rules carry the weight:
+
+- **`identity.digitsOnly` is deliberately not this function.** It parses the user
+  part out of a JID, where the number is already exact — giving it country-code
+  logic would mangle a LID like `18712345678901@lid`.
+- **10+ digits with no leading zero is treated as already complete.** That is what
+  stops a French member typed as `33612345678` becoming `21333612345678`. A
+  leading `0` is unambiguous the other way: no country calling code starts with 0.
+
+`backfillPhones()` runs at boot from `src/index.js`, repairing members enrolled
+before this existed. It is idempotent and timid on purpose: it only rewrites
+phones starting with `0`, only rewrites a `waId` that was *derived* from the bad
+phone (never a `@lid` or a JID captured from a real message), and logs and skips
+unique-index collisions rather than failing the boot. Anything else that looks
+odd is logged for a human instead of being rewritten.
 
 ## Replies
 
@@ -107,11 +137,19 @@ that looks like success is worse than no test mode.
 
 These are all covered by `npm test` — don't regress them:
 
-- **Group scope.** Commands are only honoured in groups that are in
-  `Settings.groups` *and* enabled. DMs and other groups are dropped before
-  anything is logged. The settings API refuses any id that isn't a `@g.us`
-  group JID — a `@c.us` there would make the bot obey commands in a one-to-one
-  chat, which bypasses the group entirely.
+- **Chat scope.** `Settings.chatScope()` is the single gate. Groups must be in
+  `Settings.groups` *and* enabled; one-to-one chats are honoured only when
+  `allowDirectMessages` is on. Everything else — other groups, `status@broadcast`,
+  broadcast lists, `@newsletter` channels, and our own messages — is dropped
+  before anything is logged. The server allowlists the JID *servers* it accepts
+  (`g.us`, `c.us`, `lid`) rather than treating "not a group" as "must be a DM",
+  which would put status replies in scope the moment DMs were switched on. The
+  settings API still refuses any id that isn't `@g.us` in the `groups` list —
+  DMs are a separate switch, not a group entry.
+- **Strangers in a DM get no reply.** A non-whitelisted sender in a *group* gets
+  ⛔; in a DM the denial is logged and answered with silence, so the bot never
+  confirms to someone guessing numbers that this line runs a door bot. Denials
+  are not rate limited, which is the other half of the reason.
 - **Message freshness.** Commands older than `maxMessageAgeSec` (default 90s) are
   ignored. Without this, whatsapp-web.js replaying a backlog after a reconnect
   would fire the relay once per old "open" message.
@@ -135,6 +173,15 @@ single-letter message like `Error: r` — always log the full error server-side.
 helper (`getChatModel`), same failure. `listParticipants()` in
 `src/whatsapp/groups.js` reads cached metadata, only refreshes when nothing is
 cached, and never lets a failed refresh discard what it already had.
+
+**`client.getContacts()` is better behaved, but still not safe enough.** No
+metadata refresh and no LID migration, but it runs one `Promise.all` over every
+contact and calls `contact.serialize()` on each — and `getContactModel` is
+synchronous code that can throw (`createWidFromWidLike`, `getAlternateUserWid`,
+the `Blocklist` lookup), so one bad contact rejects the whole listing.
+`src/whatsapp/contacts.js` reads the collection and projects only the fields the
+panel needs, per contact, in a try/catch, keeping `getContacts()` as a fallback.
+The result is cached for five minutes in `src/http/routes/contacts.js`.
 
 **Don't use `client.getChats()` to list groups.** Its injected helper builds a
 full model for *every* chat in the account, and for each group that includes an

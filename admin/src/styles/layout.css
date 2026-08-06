@@ -124,6 +124,39 @@
   font-size: var(--fs-sm);
 }
 
+/* A page header that keeps its action within reach on a long form - Settings
+   is several screens tall, and a Save button at the bottom of it is a button
+   you have to go looking for.
+ *
+ * The window is the scroll container (nothing between here and <body> sets
+ * overflow), so top: 0 sticks to the viewport. Its own background and padding
+ * are what content scrolls behind - no negative margin, which would drag the
+ * bar over the test-mode banner whenever that is showing. */
+.page-bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  padding: var(--sp-4) 0;
+  background: var(--clr-bg);
+  border-bottom: 1px solid var(--clr-border);
+}
+
+.page-bar .page-head {
+  min-width: 0;
+}
+
+/* The flash sits in the bar so "Saved." is visible from wherever the form was
+   saved, rather than scrolled off the top. */
+.page-bar .banner {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
 /* Test-mode banner. Clay rather than terracotta: this is a caution, not a
    failure, but it must never blend into the page. */
 .test-banner {

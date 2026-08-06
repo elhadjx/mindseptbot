@@ -101,7 +101,7 @@ export default function Contacts({ waReady }) {
       <Flash flash={flash} />
 
       <Card
-        title={contacts ? `${filtered.length} of ${contacts.length} contacts` : 'Contacts'}
+        title={contacts ? `${filtered.length} of ${contacts.length} contacts` : 'From the linked phone'}
         hint="Synced from the linked phone. Someone saved a moment ago may not appear until WhatsApp syncs — Refresh re-reads the list."
         actions={
           <button

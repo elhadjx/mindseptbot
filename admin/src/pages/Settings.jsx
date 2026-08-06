@@ -129,12 +129,18 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
 
   return (
     <form className="stack" onSubmit={save}>
-      <div className="page-head">
-        <h1>Settings</h1>
-        <p>How the bot listens and what it will do.</p>
+      {/* Sticky: this form is several screens tall, and nothing here takes
+          effect until it is saved. */}
+      <div className="page-bar">
+        <div className="page-head">
+          <h1>Settings</h1>
+          <p>How the bot listens and what it will do.</p>
+        </div>
+        <button className="btn" type="submit" disabled={saving}>
+          {saving ? 'Saving…' : 'Save settings'}
+        </button>
+        <Flash flash={flash} />
       </div>
-
-      <Flash flash={flash} />
 
       <Card
         title="Groups the bot listens in"
@@ -466,11 +472,6 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
         </div>
       </Card>
 
-      <div className="row">
-        <button className="btn" type="submit" disabled={saving}>
-          {saving ? 'Saving…' : 'Save settings'}
-        </button>
-      </div>
     </form>
   );
 }

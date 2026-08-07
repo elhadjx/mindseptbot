@@ -29,10 +29,21 @@
 }
 
 /* --- Chat list ------------------------------------------------------------ */
+/*
+ * min-width: 0 on both panes is load-bearing, not tidying.
+ *
+ * A grid item's default `min-width: auto` refuses to shrink below its
+ * content's intrinsic width, so one wide photo in a conversation stretched
+ * the 1fr track past the shell - and because the shell clips its overflow,
+ * everything in the overhanging half went with it: the composer's send and
+ * microphone buttons, and every outgoing bubble, which are right-aligned.
+ * That reads as "the app lost my messages" rather than "the app is too wide".
+ */
 .chat-list {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   border-right: 1px solid var(--clr-border);
   background: var(--clr-surface);
 }
@@ -158,6 +169,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
 }
 
 .conversation__placeholder {
@@ -171,6 +183,7 @@
   align-items: center;
   gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-4);
+  min-width: 0;
   border-bottom: 1px solid var(--clr-border);
   background: var(--clr-surface);
 }
@@ -190,7 +203,12 @@
 .conversation__scroll {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   overflow-y: auto;
+  /* Nothing in a conversation should scroll sideways; anything that insists
+     is a bug, and hiding it keeps one oversized attachment from dragging the
+     composer off screen while it is being fixed. */
+  overflow-x: hidden;
   padding: var(--sp-4);
   display: flex;
   flex-direction: column;
@@ -201,6 +219,7 @@
 /* --- Bubbles ---------------------------------------------------------------- */
 .bubble {
   max-width: min(78%, 32rem);
+  min-width: 0;
   padding: var(--sp-2) var(--sp-3);
   border-radius: var(--r-md);
   background: var(--clr-surface);
@@ -238,10 +257,20 @@
   color: var(--clr-denied);
 }
 
+.bubble__media {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .bubble__media img,
 .bubble__media video {
   display: block;
+  /* height: auto keeps the aspect ratio once max-width bites; max-height stops
+     a portrait photo from filling the whole scroller on its own. */
   max-width: 100%;
+  height: auto;
+  max-height: 22rem;
   border-radius: var(--r-sm);
 }
 
@@ -251,16 +280,20 @@
 }
 
 .bubble__audio {
-  max-width: 16rem;
+  width: 16rem;
+  max-width: 100%;
 }
 
 .bubble__document {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
+  min-width: 0;
   color: var(--clr-text);
   text-decoration: none;
   font-weight: 600;
+  /* Filenames arrive from elsewhere and can be arbitrarily long. */
+  overflow-wrap: anywhere;
 }
 
 /* --- Composer ----------------------------------------------------------------- */
@@ -269,12 +302,16 @@
   align-items: center;
   gap: var(--sp-2);
   padding: var(--sp-3);
+  min-width: 0;
   border-top: 1px solid var(--clr-border);
   background: var(--clr-surface);
 }
 
+/* The text field yields; the buttons either side of it never do. An input's
+   default intrinsic width is what would otherwise push them out of reach. */
 .composer__input {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .composer__icon {

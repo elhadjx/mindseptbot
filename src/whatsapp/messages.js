@@ -128,12 +128,61 @@ async function listChats(client) {
     .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 }
 
-/** Message history for one chat, oldest first - ready to render top to bottom. */
-async function fetchMessages(client, chatId, { limit = 50 } = {}) {
+/**
+ * `client.getChatById()` builds the SAME full chat model as `getChats()` -
+ * `getChatModel()` under the hood - which is the network-call-per-group
+ * failure mode documented at the top of this file. `Chat.prototype
+ * .fetchMessages()` itself is safe (it asks for `getAsModel: false`), but
+ * reaching it required calling the unsafe `getChatById()` first. This mirrors
+ * whatsapp-web.js's own fetchMessages implementation, driven by a raw chatId
+ * instead of a pre-built Chat instance, so the unsafe call is never made.
+ */
+async function fetchMessagesFast(client, chatId, { limit = 50 } = {}) {
+  return client.pupPage.evaluate(
+    async (id, max) => {
+      const chat = await window.WWebJS.getChat(id, { getAsModel: false });
+      if (!chat) return null;
+
+      const msgFilter = (m) => !m.isNotification;
+      let msgs = chat.msgs.getModelsArray().filter(msgFilter);
+
+      if (max > 0) {
+        while (msgs.length < max) {
+          const loaded = await window
+            .require('WAWebChatLoadMessages')
+            .loadEarlierMsgs({ chat });
+          if (!loaded || !loaded.length) break;
+          msgs = [...loaded.filter(msgFilter), ...msgs];
+        }
+        if (msgs.length > max) {
+          msgs.sort((a, b) => (a.t > b.t ? 1 : -1));
+          msgs = msgs.splice(msgs.length - max);
+        }
+      }
+
+      return msgs.map((m) => window.WWebJS.getMessageModel(m));
+    },
+    chatId,
+    limit
+  );
+}
+
+async function fetchMessagesViaChat(client, chatId, { limit = 50 } = {}) {
   const chat = await client.getChatById(chatId);
   if (!chat) return null;
-  const msgs = await chat.fetchMessages({ limit });
-  return msgs.map(mapMessage);
+  return chat.fetchMessages({ limit });
+}
+
+/** Message history for one chat, oldest first - ready to render top to bottom. */
+async function fetchMessages(client, chatId, { limit = 50 } = {}) {
+  let msgs;
+  try {
+    msgs = await fetchMessagesFast(client, chatId, { limit });
+  } catch (err) {
+    console.warn(`[wa] fast message fetch failed (${err.message}), falling back to getChatById()`);
+    msgs = await fetchMessagesViaChat(client, chatId, { limit });
+  }
+  return msgs ? msgs.map(mapMessage) : null;
 }
 
 async function sendMessage(client, chatId, text) {
@@ -181,6 +230,8 @@ module.exports = {
   listChatsFast,
   listChatsViaGetChats,
   fetchMessages,
+  fetchMessagesFast,
+  fetchMessagesViaChat,
   sendMessage,
   markRead,
   downloadMessageMedia,

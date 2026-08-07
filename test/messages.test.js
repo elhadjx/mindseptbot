@@ -1,7 +1,7 @@
 // Exercises the injected chat-listing function against a mock of WhatsApp's
 // Chat/Msg collections, plus the pure message-shaping helpers. Doesn't need
 // Mongo or a linked session.
-const { listChats, mapMessage, chatIdFor } = require('../src/whatsapp/messages');
+const { listChats, fetchMessages, mapMessage, chatIdFor } = require('../src/whatsapp/messages');
 
 let passed = 0;
 let failed = 0;
@@ -131,6 +131,77 @@ async function main() {
   chats = await listChats(broken);
   check('falls back to getChats()', chats.length === 1 && chats[0].name === 'Via getChats');
   check('  and still filters broadcast', !chats.some((c) => c.id.endsWith('@broadcast')));
+
+  console.log('\n-- fetchMessages --');
+
+  function rawMsg(id, { fromMe = false, t = 0, body = '', isNotification = false } = {}) {
+    return { id: { _serialized: id, fromMe }, t, body, isNotification, type: 'chat' };
+  }
+
+  /** A client whose pupPage.evaluate runs the fast path for real, against a
+   * mocked WWebJS.getChat/getMessageModel and WAWebChatLoadMessages. */
+  function fetchClient({ msgs, getChatThrows = false, viaGetChatById } = {}) {
+    return {
+      pupPage: {
+        evaluate: async (fn, ...args) => {
+          if (getChatThrows) throw new Error('r');
+          global.window = {
+            WWebJS: {
+              getChat: async () => (msgs ? { msgs: { getModelsArray: () => msgs } } : null),
+              getMessageModel: (m) => m,
+            },
+            require: (mod) => {
+              if (mod === 'WAWebChatLoadMessages') return { loadEarlierMsgs: async () => [] };
+              throw new Error(`unexpected module ${mod}`);
+            },
+          };
+          try {
+            return await fn(...args);
+          } finally {
+            delete global.window;
+          }
+        },
+      },
+      getChatById: async () => viaGetChatById,
+    };
+  }
+
+  let messages = await fetchMessages(
+    fetchClient({
+      msgs: [
+        rawMsg('a', { body: 'hi', t: 1 }),
+        rawMsg('note', { isNotification: true }),
+        rawMsg('b', { body: 'bye', t: 2, fromMe: true }),
+      ],
+    }),
+    '212661234567@c.us',
+    { limit: 50 }
+  );
+  check('notifications are filtered out', messages.length === 2, JSON.stringify(messages));
+  check('order and fields survive', messages[0].body === 'hi' && messages[1].fromMe === true);
+
+  check(
+    'an unknown chat returns null',
+    (await fetchMessages(fetchClient({ msgs: null }), '99999@c.us')) === null
+  );
+
+  console.log('\n-- fetchMessages fallback --');
+  messages = await fetchMessages(
+    fetchClient({
+      getChatThrows: true,
+      viaGetChatById: {
+        fetchMessages: async () => [
+          { id: { _serialized: 'x' }, fromMe: false, timestamp: 5, body: 'via getChatById', type: 'chat' },
+        ],
+      },
+    }),
+    '212661234567@c.us'
+  );
+  check(
+    'falls back to getChatById().fetchMessages()',
+    messages.length === 1 && messages[0].body === 'via getChatById',
+    JSON.stringify(messages)
+  );
 
   console.log('\n-- mapMessage --');
   const mapped = mapMessage({

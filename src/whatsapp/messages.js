@@ -188,12 +188,18 @@ async function fetchMessagesFast(client, chatId, { limit = 50 } = {}) {
       let msgs = chat.msgs.getModelsArray().filter(msgFilter);
 
       if (max > 0) {
-        while (msgs.length < max) {
+        // Bounded: a page of nothing but notifications comes back non-empty
+        // yet adds no messages, so "until we have enough" alone can spin
+        // forever - and a spinning evaluate wedges the whole WhatsApp page,
+        // taking door commands down with it.
+        for (let page = 0; msgs.length < max && page < 10; page += 1) {
           const loaded = await window
             .require('WAWebChatLoadMessages')
             .loadEarlierMsgs({ chat });
           if (!loaded || !loaded.length) break;
-          msgs = [...loaded.filter(msgFilter), ...msgs];
+          const kept = loaded.filter(msgFilter);
+          if (!kept.length) break;
+          msgs = [...kept, ...msgs];
         }
         if (msgs.length > max) {
           msgs.sort((a, b) => (a.t > b.t ? 1 : -1));

@@ -255,6 +255,19 @@
 }
 .ack--error {
   color: var(--clr-denied);
+  font-weight: 700;
+}
+
+/* Sits on the text baseline alongside the ticks it becomes. */
+.ack--clock {
+  width: 0.85em;
+  height: 0.85em;
+  vertical-align: -0.1em;
+}
+
+/* An in-flight message reads as provisional until it is acknowledged. */
+.bubble--pending {
+  opacity: 0.75;
 }
 
 .bubble__media {

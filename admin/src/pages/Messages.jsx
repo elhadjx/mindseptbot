@@ -44,19 +44,45 @@ function formatClock(ts) {
   return new Date(ts * 1000).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
+/** What an optimistic message and its delivered counterpart have in common. */
+function sameContent(a, b) {
+  return a.fromMe && b.fromMe && a.type === b.type && (a.body || '') === (b.body || '');
+}
+
 /**
  * Union two views of a conversation by message id, oldest first.
  *
  * The server's copy wins on conflict (it carries real delivery acks), while
- * anything local it hasn't caught up with yet is kept rather than made to
- * flicker out and back in.
+ * anything local it hasn't caught up with yet - an optimistic send still in
+ * flight - is kept rather than made to flicker out and back in.
+ *
+ * Returning `prev` unchanged when nothing moved is not just an optimisation:
+ * a fresh array every poll re-fired the follow-the-newest-message effect, so
+ * the view jumped to the bottom every few seconds and reading back through
+ * the history became impossible.
  */
 function mergeMessages(prev, fresh) {
+  const incoming = Array.isArray(fresh) ? fresh : [];
   const byId = new Map();
-  for (const m of fresh) byId.set(m.id, m);
+  for (const m of incoming) byId.set(m.id, m);
   for (const m of prev) if (!byId.has(m.id)) byId.set(m.id, m);
-  // Array.sort is stable, so same-second messages keep the server's order.
-  return [...byId.values()].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+  const all = [...byId.values()];
+  // Retire an optimistic bubble once its real message has landed.
+  const delivered = all.filter((m) => !m.pending);
+  const merged = all
+    .filter((m) => !(m.pending && delivered.some((d) => sameContent(m, d))))
+    // Array.sort is stable, so same-second messages keep the server's order.
+    .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+  const unchanged =
+    merged.length === prev.length &&
+    merged.every((m, i) => {
+      const p = prev[i];
+      return m.id === p.id && m.ack === p.ack && m.pending === p.pending;
+    });
+
+  return unchanged ? prev : merged;
 }
 
 function formatSeconds(total) {
@@ -91,7 +117,34 @@ function Avatar({ chatId, name }) {
   );
 }
 
-function AckMark({ ack }) {
+/* An inline clock: a glyph would be at the mercy of whatever emoji font the
+   device has, and this needs to sit level with the ticks it turns into. */
+function ClockMark() {
+  return (
+    <svg className="ack ack--clock" viewBox="0 0 16 16" aria-label="Sending" role="img">
+      <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      <path
+        d="M8 4.4V8l2.4 1.6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function AckMark({ message }) {
+  if (message.failed) {
+    return (
+      <span className="ack ack--error" title="Not sent">
+        !
+      </span>
+    );
+  }
+  if (message.pending) return <ClockMark />;
+
+  const { ack } = message;
   if (ack === undefined || ack === null) return null;
   if (ack === -1) return <span className="ack ack--error">!</span>;
   if (ack >= 3) return <span className="ack ack--read">✓✓</span>;
@@ -147,8 +200,39 @@ function MessageBubble({ message }) {
   const [mediaFailed, setMediaFailed] = useState(false);
   const mediaUrl = message.hasMedia ? api.chatMediaUrl(message.id) : null;
 
+  // An optimistic bubble has no server-side message to fetch bytes from yet,
+  // so it shows the local file it was created from.
+  if (message.pending && message.hasMedia) {
+    return (
+      <div
+        className={`bubble ${message.fromMe ? 'bubble--out' : 'bubble--in'} ${
+          message.pending ? 'bubble--pending' : ''
+        }`}
+      >
+        <div className="bubble__media">
+          {message.thumbnail ? (
+            <img src={message.thumbnail} alt={message.body || 'Sending'} />
+          ) : (
+            <div className="bubble__text muted">
+              {message.filename || MEDIA_PREVIEW[message.type] || '📎 Attachment'}
+            </div>
+          )}
+          {message.body && <div className="bubble__caption">{message.body}</div>}
+        </div>
+        <div className="bubble__meta">
+          {formatClock(message.timestamp)}
+          <AckMark message={message} />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={`bubble ${message.fromMe ? 'bubble--out' : 'bubble--in'}`}>
+    <div
+        className={`bubble ${message.fromMe ? 'bubble--out' : 'bubble--in'} ${
+          message.pending ? 'bubble--pending' : ''
+        }`}
+      >
       {mediaFailed ? (
         // WhatsApp expires media the phone has to re-upload before it can be
         // fetched again. The preview that came with the message still shows
@@ -175,7 +259,7 @@ function MessageBubble({ message }) {
       )}
       <div className="bubble__meta">
         {formatClock(message.timestamp)}
-        {message.fromMe && <AckMark ack={message.ack} />}
+        {message.fromMe && <AckMark message={message} />}
       </div>
     </div>
   );
@@ -252,6 +336,7 @@ export default function Messages({ waReady }) {
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const recordTimerRef = useRef(null);
+  const pendingSeqRef = useRef(0);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -377,13 +462,15 @@ export default function Messages({ waReady }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [waReady]);
 
-  // Follow the newest message, but only while the reader is actually at the
-  // bottom - a refresh landing mid-scroll must not yank them out of the
-  // history they were reading.
+  // Follow the newest message, but only when there IS a newer message and the
+  // reader is at the bottom. Keying this on the last id rather than on the
+  // array means a poll that changed nothing - or that only updated a delivery
+  // tick - leaves the scroll position alone.
+  const lastMessageId = messages.length ? messages[messages.length - 1].id : null;
   useEffect(() => {
     const el = scrollRef.current;
     if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
-  }, [messages, selectedId]);
+  }, [lastMessageId, selectedId]);
 
   function onConversationScroll() {
     const el = scrollRef.current;
@@ -391,25 +478,69 @@ export default function Messages({ waReady }) {
     atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
   }
 
-  // A send can still come back without a stored message if the read-back in
-  // whatsapp/messages.js also missed; the poll below reconciles it shortly.
-  function appendOwnMessage(message) {
-    if (!message?.id) return;
+  /**
+   * Put the message on screen before the network has agreed to it.
+   *
+   * A round trip to WhatsApp through the browser page is slow enough to feel
+   * like nothing happened, so the bubble appears at once carrying a clock,
+   * and the real delivery ticks replace it when the send comes back.
+   */
+  function addPendingMessage(fields) {
+    pendingSeqRef.current += 1;
+    const pending = {
+      id: `pending:${pendingSeqRef.current}`,
+      timestamp: Math.floor(Date.now() / 1000),
+      fromMe: true,
+      pending: true,
+      body: '',
+      type: 'chat',
+      hasMedia: false,
+      ...fields,
+    };
     // Sending is an explicit act - always follow it down.
     atBottomRef.current = true;
-    setMessages((prev) => (prev.some((m) => m.id === message.id) ? prev : [...prev, message]));
+    setMessages((prev) => [...prev, pending]);
+    return pending.id;
+  }
+
+  /** Swap the placeholder for the delivered message, or mark it failed. */
+  function settlePending(pendingId, message, { failed = false } = {}) {
+    setMessages((prev) => {
+      const next = [];
+      for (const m of prev) {
+        if (m.id !== pendingId) {
+          // The poll or the stream may have raced us to the real message.
+          if (message && m.id === message.id) continue;
+          next.push(m);
+          continue;
+        }
+        if (message?.id) {
+          // Carry the local preview over: the delivered message points at a
+          // media URL the server may not be able to serve yet.
+          next.push({ ...message, thumbnail: message.thumbnail || m.thumbnail });
+        } else {
+          next.push({ ...m, pending: !failed, failed });
+        }
+      }
+      return next;
+    });
   }
 
   async function sendText(event) {
     event.preventDefault();
     const text = composeText.trim();
     if (!text || !selectedId || sending) return;
+
+    // Clear the box immediately - retyping because the UI looked stuck is
+    // exactly how a message gets sent twice.
+    setComposeText('');
+    const pendingId = addPendingMessage({ body: text, type: 'chat' });
     setSending(true);
     try {
       const { message } = await api.sendChatMessage(selectedId, text);
-      setComposeText('');
-      appendOwnMessage(message);
+      settlePending(pendingId, message);
     } catch (err) {
+      settlePending(pendingId, null, { failed: true });
       setFlash({ ok: false, message: err.message });
     } finally {
       setSending(false);
@@ -418,17 +549,42 @@ export default function Messages({ waReady }) {
 
   async function uploadMedia(fileOrBlob, { asVoice = false } = {}) {
     if (!selectedId) return;
+
+    const type = asVoice
+      ? 'ptt'
+      : fileOrBlob.type?.startsWith('image/')
+        ? 'image'
+        : fileOrBlob.type?.startsWith('video/')
+          ? 'video'
+          : fileOrBlob.type?.startsWith('audio/')
+            ? 'audio'
+            : 'document';
+    // Show the picture the moment it is picked, straight from the local file.
+    const localPreview = type === 'image' ? URL.createObjectURL(fileOrBlob) : null;
+    const pendingId = addPendingMessage({
+      type,
+      hasMedia: true,
+      thumbnail: localPreview,
+      filename: fileOrBlob.name || null,
+    });
+
     setSending(true);
     try {
       const form = new FormData();
       form.append('file', fileOrBlob, fileOrBlob.name || (asVoice ? 'voice-note.webm' : 'file'));
       if (asVoice) form.append('voice', '1');
       const { message } = await api.sendChatMedia(selectedId, form);
-      appendOwnMessage(message);
+      settlePending(pendingId, message);
     } catch (err) {
+      settlePending(pendingId, null, { failed: true });
       setFlash({ ok: false, message: err.message });
     } finally {
       setSending(false);
+      if (localPreview) {
+        // The bubble has had its moment; the delivered message serves its own
+        // bytes from here on.
+        setTimeout(() => URL.revokeObjectURL(localPreview), 60000);
+      }
     }
   }
 

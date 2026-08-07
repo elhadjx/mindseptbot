@@ -97,6 +97,9 @@
 
   --grain-opacity: 0.035;
   --layout-max: 1180px;
+  /* Height of the mobile bottom tab bar, excluding the safe-area inset.
+     Content that must clear it reserves exactly this. */
+  --tabbar-h: 3.5rem;
 }
 
 /*

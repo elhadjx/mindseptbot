@@ -361,17 +361,24 @@
   }
 
   /* Taken out of the header's flow and pinned to the bottom of the viewport -
-     its position in the JSX (between brand and foot) doesn't matter here. */
+     its position in the JSX (between brand and foot) doesn't matter here.
+     Its height is fixed so content above it can reserve exactly the right
+     amount of room rather than guessing. */
   .nav {
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
     z-index: 30;
+    /* border-box so the bar's total height is exactly the space content
+       reserves for it below - a content-box border made it 1px taller than
+       the reservation, and the composer sat under the bar by that much. */
+    box-sizing: border-box;
+    height: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
     flex-direction: row;
     justify-content: space-around;
     gap: 0;
-    padding: var(--sp-1) var(--sp-1) calc(var(--sp-1) + env(safe-area-inset-bottom, 0px));
+    padding: 0 var(--sp-1) env(safe-area-inset-bottom, 0px);
     background: var(--clr-surface);
     border-top: 1px solid var(--clr-border);
     box-shadow: var(--sh-2);
@@ -428,11 +435,55 @@
   }
 
   .main {
-    padding: var(--sp-5) var(--sp-4) calc(var(--sp-7) + 72px);
+    padding: var(--sp-5) var(--sp-4) calc(var(--sp-6) + var(--tabbar-h));
   }
 
   .qr-panel {
     grid-template-columns: 1fr;
+  }
+
+  /* --- Edge-to-edge pages ------------------------------------------------
+   *
+   * A conversation is a surface you live in, not a document you read, and on
+   * a phone the page title, its description and the card's own margins were
+   * spending most of the screen before the first message. So the shell takes
+   * the exact viewport height, the title goes (the tab bar already says where
+   * you are), and the chat runs to all four edges.
+   */
+  .shell--flush {
+    height: 100vh;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .main--flush {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    min-height: 0;
+    padding: 0 0 calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .main--flush .page-head {
+    display: none;
+  }
+
+  /* The flash still needs somewhere to sit once the padding is gone. */
+  .main--flush .banner {
+    margin: var(--sp-3) var(--sp-4) 0;
+  }
+
+  .main--flush .test-banner {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+}
+
+@supports (height: 100dvh) {
+  @media (max-width: 860px) {
+    .shell--flush {
+      height: 100dvh;
+    }
   }
 }
 

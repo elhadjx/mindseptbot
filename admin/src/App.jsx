@@ -108,8 +108,12 @@ export default function App() {
   if (!authed) return <Login onAuthenticated={() => setAuthed(true)} />;
   if (!settings) return null;
 
+  /* Messages is a chat surface, not a document: on a phone it claims the whole
+     screen rather than sitting in a padded card under a page title. */
+  const flush = page === 'messages';
+
   return (
-    <div className="shell">
+    <div className={`shell ${flush ? 'shell--flush' : ''}`}>
       <aside className="sidebar">
         <div className="brand">
           <img className="brand__mark" src="/logo.png" alt="Mindsept" />
@@ -169,7 +173,7 @@ export default function App() {
         </div>
       </aside>
 
-      <main className="main">
+      <main className={`main ${flush ? 'main--flush' : ''}`}>
         {/*
           Test mode is the one setting that makes the whole system lie about
           what it did, so it is shown on every page rather than only where it

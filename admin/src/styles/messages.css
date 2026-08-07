@@ -8,11 +8,13 @@
   min-height: 0;
 }
 
+/* Desktop keeps the card: there the page title and gutters cost nothing, and
+   a bounded panel sitting in the page reads better than a full-bleed one.
+   The 230px is the page header and gutters above it. */
 .messages-shell {
-  --tabbar-clearance: 0px;
   display: grid;
   grid-template-columns: 1fr;
-  height: calc(100vh - 230px - var(--tabbar-clearance));
+  height: calc(100vh - 230px);
   min-height: 420px;
   max-height: 780px;
   border: 1px solid var(--clr-border);
@@ -24,7 +26,7 @@
 
 @supports (height: 100dvh) {
   .messages-shell {
-    height: calc(100dvh - 230px - var(--tabbar-clearance));
+    height: calc(100dvh - 230px);
   }
 }
 
@@ -351,10 +353,6 @@
 
 /* --- Mobile: list <-> conversation swap instead of a split pane ------------ */
 @media (max-width: 860px) {
-  .messages-shell {
-    --tabbar-clearance: 64px;
-  }
-
   .messages-shell--list .conversation,
   .messages-shell--chat .chat-list {
     display: none;
@@ -362,6 +360,35 @@
 
   .conversation__back {
     display: inline-flex;
+  }
+
+  /* Edge to edge: the shell stops being a card and becomes the screen. Its
+     height comes from filling the flush main rather than a viewport
+     calculation, which is what kept it honest when the mobile browser's own
+     chrome slides in and out. */
+  .main--flush .messages-page {
+    flex: 1;
+    min-height: 0;
+    gap: 0;
+  }
+
+  .main--flush .messages-shell {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  /* A conversation is dense; it does not need the roomier page gutter. */
+  .main--flush .conversation__scroll {
+    padding: var(--sp-3);
+  }
+
+  .main--flush .composer {
+    padding: var(--sp-2) var(--sp-3);
   }
 }
 

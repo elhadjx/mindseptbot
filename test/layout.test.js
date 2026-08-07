@@ -35,7 +35,7 @@ const WIDE_IMAGE =
   ).toString('base64');
 
 const html = `<!doctype html><html><head><style>${css}</style></head><body>
-<div class="shell">
+<div class="shell shell--flush">
   <aside class="sidebar">
     <div class="brand"><div><div class="brand__name">Mindsept</div><div class="brand__sub">Door access</div></div></div>
     <nav class="nav">
@@ -44,7 +44,8 @@ const html = `<!doctype html><html><head><style>${css}</style></head><body>
     </nav>
     <div class="sidebar__foot"><div class="row"><span class="seed"></span><span class="muted">WhatsApp connected</span></div></div>
   </aside>
-  <main class="main"><div class="stack messages-page">
+  <main class="main main--flush"><div class="stack messages-page">
+    <div class="page-head"><h1>Messages</h1><p>The full inbox of the linked WhatsApp number.</p></div>
     <div class="messages-shell messages-shell--chat">
       <div class="chat-list">
         <div class="chat-list__head"><input class="input"><button class="btn btn--ghost btn--sm">↻</button></div>
@@ -119,10 +120,23 @@ async function main() {
         const el = document.querySelector(sel);
         if (!el) return null;
         const b = el.getBoundingClientRect();
-        return { left: b.left, right: b.right, width: b.width };
+        return {
+          left: b.left,
+          right: b.right,
+          width: b.width,
+          top: b.top,
+          bottom: b.bottom,
+          height: b.height,
+        };
       };
       const scroller = document.querySelector('#scroll');
+      const head = document.querySelector('.page-head');
       return {
+        headVisible: head ? getComputedStyle(head).display !== 'none' : false,
+        nav: box('.nav'),
+        composer: box('#composer'),
+        scroller: box('#scroll'),
+        vh: window.innerHeight,
         pageScrollW: document.documentElement.scrollWidth,
         pageClientW: document.documentElement.clientWidth,
         shell: box('.messages-shell'),
@@ -171,6 +185,32 @@ async function main() {
       m.outgoing.right <= m.shell.right + SLACK && m.outgoing.left >= m.shell.left - SLACK,
       `${m.outgoing.left}..${m.outgoing.right} vs ${m.shell.left}..${m.shell.right}`
     );
+
+    // Below the breakpoint the conversation claims the screen; above it, it
+    // stays a card in the page.
+    if (width <= 860) {
+      check('the page title gives way to the conversation', m.headVisible === false);
+      check(
+        'the conversation runs edge to edge',
+        m.shell.left <= SLACK && m.shell.right >= m.pageClientW - SLACK,
+        `${m.shell.left}..${m.shell.right} of ${m.pageClientW}`
+      );
+      check(
+        'the composer clears the tab bar',
+        m.composer.bottom <= m.nav.top + SLACK,
+        `composer ${m.composer.bottom} vs tab bar ${m.nav.top}`
+      );
+      check(
+        'the tab bar is flush with the bottom',
+        Math.abs(m.nav.bottom - m.vh) <= SLACK,
+        `${m.nav.bottom} vs ${m.vh}`
+      );
+      const share = (m.scroller.height / m.vh) * 100;
+      check('the messages take most of the screen', share > 60, `${share.toFixed(1)}%`);
+    } else {
+      check('the page keeps its title on a wide screen', m.headVisible === true);
+      check('the conversation stays a card', m.shell.left > SLACK, `left ${m.shell.left}`);
+    }
 
     await page.close();
   }

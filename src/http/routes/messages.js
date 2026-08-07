@@ -11,6 +11,7 @@ const {
   sendMedia,
 } = require('../../whatsapp/messages');
 const { describePageError, requireReady } = require('../wa');
+const { resolveRange } = require('../range');
 
 const router = express.Router();
 
@@ -87,14 +88,43 @@ router.get('/messages/:id/media', requireReady, async (req, res) => {
   try {
     const media = await downloadMessageMedia(getClient(), req.params.id);
     if (!media) return res.status(404).json({ ok: false, error: 'no_media' });
-    res.set('Content-Type', media.mimetype || 'application/octet-stream');
+
+    const buffer = Buffer.from(media.data, 'base64');
+    res.set({
+      'Content-Type': media.mimetype || 'application/octet-stream',
+      // <audio> and <video> ask for ranges to seek, and Chrome will not give a
+      // voice note a scrubbable duration without this. Saying "bytes" while
+      // ignoring Range headers is worse than not offering it at all.
+      'Accept-Ranges': 'bytes',
+      // The bytes behind a message id never change, and every miss costs a
+      // fresh download-and-decrypt through the browser page.
+      'Cache-Control': 'private, max-age=86400',
+    });
     if (media.filename) {
       res.set('Content-Disposition', `inline; filename="${media.filename.replace(/"/g, '')}"`);
     }
-    res.send(Buffer.from(media.data, 'base64'));
+
+    const range = resolveRange(req.headers.range, buffer.length);
+    if (range && !range.satisfiable) {
+      return res.status(416).set('Content-Range', `bytes */${buffer.length}`).end();
+    }
+    if (range) {
+      const { start, end } = range;
+      return res
+        .status(206)
+        .set({
+          'Content-Range': `bytes ${start}-${end}/${buffer.length}`,
+          'Content-Length': end - start + 1,
+        })
+        .send(buffer.subarray(start, end + 1));
+    }
+
+    return res.send(buffer);
   } catch (err) {
     console.error('[api] downloading media failed:', err);
-    res.status(500).json({ ok: false, error: describePageError(err, 'Could not download media') });
+    return res
+      .status(500)
+      .json({ ok: false, error: describePageError(err, 'Could not download media') });
   }
 });
 

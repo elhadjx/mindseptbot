@@ -1,7 +1,13 @@
 // Exercises the injected chat-listing function against a mock of WhatsApp's
 // Chat/Msg collections, plus the pure message-shaping helpers. Doesn't need
 // Mongo or a linked session.
-const { listChats, fetchMessages, mapMessage, chatIdFor } = require('../src/whatsapp/messages');
+const {
+  listChats,
+  fetchMessages,
+  sendMessage,
+  mapMessage,
+  chatIdFor,
+} = require('../src/whatsapp/messages');
 
 let passed = 0;
 let failed = 0;
@@ -216,6 +222,62 @@ async function main() {
   });
   check('id is serialized', mapped.id === '212@c.us_ABC');
   check('fromMe passes through', mapped.fromMe === true);
+
+  console.log('\n-- mapMessage: media detection --');
+  // A serialized model carries neither `hasMedia` nor, reliably, a top-level
+  // directPath - getting this wrong renders a photo as an empty text bubble.
+  const rawImage = mapMessage({
+    id: { _serialized: 'img1', fromMe: false },
+    type: 'image',
+    caption: 'at the door',
+    t: 9,
+  });
+  check('a serialized image counts as media', rawImage.hasMedia === true);
+  check('  and its caption becomes the body', rawImage.body === 'at the door', rawImage.body);
+
+  const rawVoice = mapMessage({ id: { _serialized: 'ptt1' }, type: 'ptt', t: 9 });
+  check('a voice note counts as media', rawVoice.hasMedia === true);
+
+  const liveImage = mapMessage({
+    id: { _serialized: 'img2' },
+    type: 'image',
+    hasMedia: true,
+    body: 'already folded in',
+  });
+  check('a live Message keeps its folded-in caption', liveImage.body === 'already folded in');
+
+  const doc = mapMessage({
+    id: { _serialized: 'doc1' },
+    type: 'document',
+    filename: 'lease.pdf',
+    mimetype: 'application/pdf',
+  });
+  check('documents carry their filename', doc.filename === 'lease.pdf');
+  check('  and mimetype', doc.mimetype === 'application/pdf');
+
+  const plain = mapMessage({ id: { _serialized: 't1' }, type: 'chat', body: 'hello' });
+  check('a plain text message is not media', plain.hasMedia === false);
+
+  const objAuthor = mapMessage({
+    id: { _serialized: 'g1' },
+    type: 'chat',
+    author: { _serialized: '212661234567@c.us' },
+  });
+  check('an object author is serialized', objAuthor.author === '212661234567@c.us', String(objAuthor.author));
+
+  console.log('\n-- sendMessage --');
+  let sent = await sendMessage(
+    { sendMessage: async () => ({ id: { _serialized: 'new1', fromMe: true }, body: 'yo', type: 'chat' }) },
+    '212661234567@c.us',
+    'yo'
+  );
+  check('a sent message is mapped', sent.id === 'new1' && sent.body === 'yo');
+
+  // whatsapp-web.js looks the sent message back up by its new key and returns
+  // undefined when that misses - the message is already gone out. Mapping the
+  // undefined is what produced "Cannot read properties of undefined".
+  sent = await sendMessage({ sendMessage: async () => undefined }, '133302967075006@lid', 'yo');
+  check('a missing post-send model is null, not a throw', sent === null, String(sent));
 
   console.log('\n-- chatIdFor --');
   check(

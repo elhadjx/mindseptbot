@@ -58,7 +58,7 @@ function AckMark({ ack }) {
   return <span className="ack">✓</span>;
 }
 
-function MessageContent({ message, mediaUrl }) {
+function MessageContent({ message, mediaUrl, onMediaError }) {
   if (!message.hasMedia) {
     return <div className="bubble__text">{message.body || <span className="muted">…</span>}</div>;
   }
@@ -67,7 +67,7 @@ function MessageContent({ message, mediaUrl }) {
     case 'sticker':
       return (
         <a href={mediaUrl} target="_blank" rel="noreferrer" className="bubble__media">
-          <img src={mediaUrl} loading="lazy" alt={message.body || 'Photo'} />
+          <img src={mediaUrl} loading="lazy" alt={message.body || 'Photo'} onError={onMediaError} />
           {message.body && <div className="bubble__caption">{message.body}</div>}
         </a>
       );
@@ -75,19 +75,24 @@ function MessageContent({ message, mediaUrl }) {
       return (
         <div className="bubble__media">
           {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-          <video controls src={mediaUrl} />
+          <video controls preload="metadata" src={mediaUrl} onError={onMediaError} />
           {message.body && <div className="bubble__caption">{message.body}</div>}
         </div>
       );
     case 'audio':
     case 'ptt':
-      // eslint-disable-next-line jsx-a11y/media-has-caption
-      return <audio controls src={mediaUrl} className="bubble__audio" />;
+      return (
+        <div className="bubble__media">
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+          <audio controls preload="metadata" src={mediaUrl} className="bubble__audio" onError={onMediaError} />
+          {message.body && <div className="bubble__caption">{message.body}</div>}
+        </div>
+      );
     case 'document':
       return (
-        <a className="bubble__document" href={mediaUrl} download>
+        <a className="bubble__document" href={mediaUrl} download={message.filename || undefined}>
           <span aria-hidden="true">📎</span>
-          <span>{message.body || 'Document'}</span>
+          <span>{message.filename || message.body || 'Document'}</span>
         </a>
       );
     default:
@@ -96,10 +101,25 @@ function MessageContent({ message, mediaUrl }) {
 }
 
 function MessageBubble({ message }) {
+  // WhatsApp drops the bytes for old media, and the phone has to re-upload it
+  // before it can be fetched again. A broken-image icon doesn't say that.
+  const [mediaFailed, setMediaFailed] = useState(false);
   const mediaUrl = message.hasMedia ? api.chatMediaUrl(message.id) : null;
+
   return (
     <div className={`bubble ${message.fromMe ? 'bubble--out' : 'bubble--in'}`}>
-      <MessageContent message={message} mediaUrl={mediaUrl} />
+      {mediaFailed ? (
+        <div className="bubble__text muted">
+          {MEDIA_PREVIEW[message.type] || '📎 Attachment'} — not available.
+          {message.body && <div className="bubble__caption">{message.body}</div>}
+        </div>
+      ) : (
+        <MessageContent
+          message={message}
+          mediaUrl={mediaUrl}
+          onMediaError={() => setMediaFailed(true)}
+        />
+      )}
       <div className="bubble__meta">
         {formatClock(message.timestamp)}
         {message.fromMe && <AckMark ack={message.ack} />}
@@ -277,7 +297,11 @@ export default function Messages({ waReady }) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, selectedId]);
 
+  // A send can succeed without handing back the stored message (see
+  // sendMessage in whatsapp/messages.js). The MESSAGE_CREATE stream delivers
+  // it a moment later, so there is nothing to do here but not crash.
   function appendOwnMessage(message) {
+    if (!message?.id) return;
     setMessages((prev) => (prev.some((m) => m.id === message.id) ? prev : [...prev, message]));
   }
 

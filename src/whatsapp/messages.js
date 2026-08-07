@@ -15,16 +15,33 @@ const { MessageMedia } = require('whatsapp-web.js');
 
 const CHAT_SERVERS = new Set(['c.us', 'lid', 'g.us']);
 
+// WhatsApp only ever assigns these types to a message carrying an attachment,
+// which makes the type a more dependable "is this media" signal than any one
+// field: a live Message exposes `hasMedia`, a serialized model exposes
+// `directPath`, and which of those is populated depends on where the message
+// came from. Getting this wrong renders a photo as an empty text bubble.
+const MEDIA_TYPES = new Set(['image', 'video', 'audio', 'ptt', 'document', 'sticker']);
+
 /** Shape shared by every message we hand to the panel, live or historical. */
 function mapMessage(m) {
+  const hasMedia =
+    MEDIA_TYPES.has(m.type) ||
+    Boolean(typeof m.hasMedia === 'boolean' ? m.hasMedia : m.directPath);
+
   return {
     id: m.id?._serialized || String(m.id),
-    body: m.body || '',
+    // A live Message has already folded the caption into `body`; a serialized
+    // model keeps the two apart and leaves `body` empty on media.
+    body: (hasMedia ? m.body || m.caption : m.body) || '',
     timestamp: m.timestamp ?? m.t ?? null,
     fromMe: Boolean(m.fromMe ?? m.id?.fromMe),
-    author: m.author || null,
+    author: typeof m.author === 'object' ? m.author?._serialized || null : m.author || null,
     type: m.type,
-    hasMedia: Boolean(m.hasMedia ?? m.directPath),
+    hasMedia,
+    // Lets the panel label a document with its real filename rather than the
+    // caption, and pick a player before the bytes are fetched.
+    filename: m.filename || null,
+    mimetype: m.mimetype || null,
     ack: m.ack,
   };
 }
@@ -185,23 +202,111 @@ async function fetchMessages(client, chatId, { limit = 50 } = {}) {
   return msgs ? msgs.map(mapMessage) : null;
 }
 
+/**
+ * whatsapp-web.js hands the message to the chat and THEN looks the sent model
+ * back up by its new key (`Msg.get(newMsgKey._serialized)`). Under LID
+ * addressing that lookup can miss, and `client.sendMessage()` returns
+ * undefined even though the message has already gone out. Mapping that
+ * undefined is what produced "Cannot read properties of undefined (reading
+ * 'id')" - reported as a send failure for a message the recipient had
+ * already received.
+ *
+ * So a missing model is not an error: return null and let the MESSAGE_CREATE
+ * event deliver the real message over the stream a moment later.
+ */
 async function sendMessage(client, chatId, text) {
   const msg = await client.sendMessage(chatId, text);
-  return mapMessage(msg);
+  return msg ? mapMessage(msg) : null;
 }
 
 async function markRead(client, chatId) {
   await client.sendSeen(chatId);
 }
 
-/** Downloads the media attached to one message. Null if there is none, or
- * WhatsApp can't resolve it (expired, still uploading, etc). */
-async function downloadMessageMedia(client, messageId) {
+/**
+ * Downloads the media attached to one message.
+ *
+ * This mirrors Message.downloadMedia(), but keyed straight off the Msg
+ * collection rather than reached through `client.getMessageById()`. That
+ * getter re-parses the serialized id and throws "Invalid serialized message
+ * id specified" for anything that isn't exactly 3 or 4 underscore-separated
+ * parts, and rebuilds the whole message model just to read four media fields
+ * off it - neither of which we need to download bytes.
+ *
+ * Returns null when there is no media, or WhatsApp cannot resolve it
+ * (expired, still uploading, download errored).
+ */
+async function downloadMessageMediaFast(client, messageId) {
+  return client.pupPage.evaluate(async (msgId) => {
+    const collections = window.require('WAWebCollections');
+    const msg =
+      collections.Msg.get(msgId) ||
+      (await collections.Msg.getMessagesById([msgId]))?.messages?.[0];
+
+    // REUPLOADING means the media expired and the phone is re-uploading it.
+    if (!msg || !msg.mediaData || msg.mediaData.mediaStage === 'REUPLOADING') return null;
+
+    if (msg.mediaData.mediaStage !== 'RESOLVED') {
+      await msg.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 });
+    }
+    if (msg.mediaData.mediaStage.includes('ERROR') || msg.mediaData.mediaStage === 'FETCHING') {
+      return null;
+    }
+
+    // The download manager wants a performance-logging handle; it only ever
+    // gets chained calls, so a pair of no-ops satisfies it.
+    const mockQpl = {
+      addAnnotations() {
+        return this;
+      },
+      addPoint() {
+        return this;
+      },
+    };
+
+    const decrypted = await window
+      .require('WAWebDownloadManager')
+      .downloadManager.downloadAndMaybeDecrypt({
+        directPath: msg.directPath,
+        encFilehash: msg.encFilehash,
+        filehash: msg.filehash,
+        mediaKey: msg.mediaKey,
+        mediaKeyTimestamp: msg.mediaKeyTimestamp,
+        type: msg.type,
+        signal: new AbortController().signal,
+        downloadQpl: mockQpl,
+      });
+
+    return {
+      data: await window.WWebJS.arrayBufferToBase64Async(decrypted),
+      mimetype: msg.mimetype,
+      filename: msg.filename,
+    };
+  }, messageId);
+}
+
+async function downloadMessageMediaViaMessage(client, messageId) {
   const msg = await client.getMessageById(messageId);
   if (!msg || !msg.hasMedia) return null;
   const media = await msg.downloadMedia();
   if (!media) return null;
   return { mimetype: media.mimetype, data: media.data, filename: media.filename || null };
+}
+
+async function downloadMessageMedia(client, messageId) {
+  let media;
+  try {
+    media = await downloadMessageMediaFast(client, messageId);
+  } catch (err) {
+    console.warn(`[wa] fast media download failed (${err.message}), falling back to the message`);
+    media = await downloadMessageMediaViaMessage(client, messageId);
+  }
+  if (!media?.data) return null;
+  return {
+    mimetype: media.mimetype || null,
+    data: media.data,
+    filename: media.filename || null,
+  };
 }
 
 /**
@@ -220,7 +325,8 @@ async function sendMedia(
     sendAudioAsVoice: Boolean(asVoice),
     sendMediaAsDocument: Boolean(asDocument),
   });
-  return mapMessage(msg);
+  // Same post-send lookup caveat as sendMessage() above.
+  return msg ? mapMessage(msg) : null;
 }
 
 module.exports = {
@@ -235,5 +341,7 @@ module.exports = {
   sendMessage,
   markRead,
   downloadMessageMedia,
+  downloadMessageMediaFast,
+  downloadMessageMediaViaMessage,
   sendMedia,
 };

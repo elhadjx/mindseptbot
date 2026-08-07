@@ -89,8 +89,18 @@
 }
 
 .nav__icon {
-  font-size: 1.05rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
+  /* Slightly muted while inactive so the active tab reads first. */
+  opacity: 0.75;
+}
+
+.nav__item--active .nav__icon,
+.nav__item:hover .nav__icon {
+  opacity: 1;
+  color: var(--clr-primary);
 }
 
 .sidebar__foot {
@@ -388,13 +398,32 @@
     margin-top: 0;
     flex-direction: row;
     align-items: center;
-    gap: var(--sp-3);
+    gap: var(--sp-2);
+    padding: 0;
+    flex: none;
   }
 
   /* The status label ("WhatsApp connected") doesn't fit a slim header - the
      dot alone still carries the at-a-glance signal, and the Connection tab
      (one tap away, in the tab bar) has the full text. */
   .sidebar__foot .row:first-child .muted {
+    display: none;
+  }
+
+  /* Square icon buttons rather than pills: at this size a pill with a word in
+     it is mostly padding, and two of them side by side swamped the header. */
+  .sidebar__actions {
+    gap: var(--sp-1);
+  }
+
+  .btn--icon {
+    width: 2.5rem;
+    height: 2.5rem;
+    padding: 0;
+    border-radius: var(--r-md);
+  }
+
+  .btn__label {
     display: none;
   }
 

@@ -7,14 +7,25 @@ import Contacts from './pages/Contacts';
 import Messages from './pages/Messages';
 import Activity from './pages/Activity';
 import Settings from './pages/Settings';
+import {
+  ActivityIcon,
+  ChatIcon,
+  ContactsIcon,
+  LinkIcon,
+  MoonIcon,
+  SignOutIcon,
+  SlidersIcon,
+  SunIcon,
+  UsersIcon,
+} from './components/icons';
 
 const PAGES = [
-  { key: 'connection', label: 'Connection', icon: '◍' },
-  { key: 'members', label: 'Members', icon: '❧' },
-  { key: 'contacts', label: 'Contacts', icon: '☏' },
-  { key: 'messages', label: 'Messages', icon: '✉' },
-  { key: 'activity', label: 'Activity', icon: '≋' },
-  { key: 'settings', label: 'Settings', icon: '✿' },
+  { key: 'connection', label: 'Connection', Icon: LinkIcon },
+  { key: 'members', label: 'Members', Icon: UsersIcon },
+  { key: 'contacts', label: 'Contacts', Icon: ContactsIcon },
+  { key: 'messages', label: 'Messages', Icon: ChatIcon },
+  { key: 'activity', label: 'Activity', Icon: ActivityIcon },
+  { key: 'settings', label: 'Settings', Icon: SlidersIcon },
 ];
 
 const STATUS_SEED = {
@@ -114,8 +125,11 @@ export default function App() {
               key={p.key}
               className={`nav__item ${page === p.key ? 'nav__item--active' : ''}`}
               onClick={() => setPage(p.key)}
+              aria-current={page === p.key ? 'page' : undefined}
             >
-              <span className="nav__icon" aria-hidden="true">{p.icon}</span>
+              <span className="nav__icon">
+                <p.Icon />
+              </span>
               {p.label}
             </button>
           ))}
@@ -130,12 +144,26 @@ export default function App() {
             />
             <span className="muted">{STATUS_LABEL[waState.status] || 'WhatsApp starting…'}</span>
           </div>
-          <div className="row">
-            <button className="btn btn--ghost btn--sm" onClick={toggleTheme}>
-              {theme === 'dark' ? '☀' : '☾'}
+          {/* Icon-only on a phone, where the header is a single slim strip and
+              a pill reading "Sign out" crowds it. The label returns on
+              desktop, where the sidebar has the room for it. */}
+          <div className="row sidebar__actions">
+            <button
+              className="btn btn--ghost btn--icon"
+              onClick={toggleTheme}
+              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
             </button>
-            <button className="btn btn--ghost btn--sm" onClick={logout}>
-              Sign out
+            <button
+              className="btn btn--ghost btn--icon"
+              onClick={logout}
+              title="Sign out"
+              aria-label="Sign out"
+            >
+              <SignOutIcon />
+              <span className="btn__label">Sign out</span>
             </button>
           </div>
         </div>

@@ -2,6 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { Empty, Flash, useFlash } from '../components/ui';
 import { makeSearch } from '../lib/search';
+import {
+  ArrowLeftIcon,
+  MicIcon,
+  PaperclipIcon,
+  RefreshIcon,
+  SendIcon,
+} from '../components/icons';
 
 // The full inbox of the linked WhatsApp number - not just the door groups the
 // bot listens in. Mobile-first: the chat list and the open conversation are
@@ -284,8 +291,9 @@ function ChatList({ chats, loading, selectedId, query, onQuery, onSelect, onRefr
           onClick={onRefresh}
           disabled={loading}
           title="Refresh"
+          aria-label="Refresh chats"
         >
-          {loading ? '…' : '↻'}
+          {loading ? '…' : <RefreshIcon />}
         </button>
       </div>
       <div className="chat-list__items">
@@ -320,6 +328,7 @@ export default function Messages({ waReady }) {
   const [chats, setChats] = useState(null);
   const [loadingChats, setLoadingChats] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
+  const [openedChat, setOpenedChat] = useState(null);
   const [messages, setMessages] = useState([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [query, setQuery] = useState('');
@@ -361,21 +370,33 @@ export default function Messages({ waReady }) {
   }, [waReady]);
 
   async function openChat(chat) {
+    const reopening = chat.id === selectedId;
     setSelectedId(chat.id);
-    setMessages([]);
+    // Remembered separately from the list: see selectedChat below.
+    setOpenedChat(chat);
+    // Re-opening the chat already on screen must not throw its history away.
+    if (!reopening) {
+      setMessages([]);
+      // A freshly opened chat starts pinned to its newest message.
+      atBottomRef.current = true;
+    }
     setLoadingMessages(true);
-    // A freshly opened chat starts pinned to its newest message.
-    atBottomRef.current = true;
     setChats((prev) => prev?.map((c) => (c.id === chat.id ? { ...c, unreadCount: 0 } : c)) ?? prev);
     try {
       const { messages: list } = await api.chatMessages(chat.id, { limit: 50 });
-      setMessages(list);
+      setMessages((prev) => (reopening ? mergeMessages(prev, list) : list));
       api.markChatRead(chat.id).catch(() => {});
     } catch (err) {
       setFlash({ ok: false, message: err.message });
     } finally {
       setLoadingMessages(false);
     }
+  }
+
+  function closeChat() {
+    setSelectedId(null);
+    setOpenedChat(null);
+    setMessages([]);
   }
 
   /**
@@ -634,7 +655,18 @@ export default function Messages({ waReady }) {
 
   useEffect(() => () => clearInterval(recordTimerRef.current), []);
 
-  const selectedChat = chats?.find((c) => c.id === selectedId) || null;
+  /*
+   * Fall back to the chat as it was when opened, rather than requiring it to
+   * still be in the list.
+   *
+   * WhatsApp can re-key a chat while it is open - a LID conversation resolves
+   * to its phone-number JID after you send to it - and looking the open chat
+   * up by id alone meant the whole conversation unmounted the moment the list
+   * refreshed: messages, composer and all.
+   */
+  const selectedChat = selectedId
+    ? chats?.find((c) => c.id === selectedId) || openedChat
+    : null;
 
   return (
     <div className="stack messages-page">
@@ -670,9 +702,10 @@ export default function Messages({ waReady }) {
                   <button
                     type="button"
                     className="btn btn--ghost btn--sm conversation__back"
-                    onClick={() => setSelectedId(null)}
+                    onClick={closeChat}
+                    aria-label="Back to chats"
                   >
-                    ← Back
+                    <ArrowLeftIcon />
                   </button>
                   <Avatar chatId={selectedChat.id} name={selectedChat.name} />
                   <div className="conversation__title">
@@ -701,8 +734,9 @@ export default function Messages({ waReady }) {
                     onClick={pickFile}
                     disabled={sending || recording}
                     title="Attach a file"
+                    aria-label="Attach a file"
                   >
-                    📎
+                    <PaperclipIcon />
                   </button>
 
                   {recording ? (
@@ -723,8 +757,14 @@ export default function Messages({ waReady }) {
                         disabled={sending}
                       />
                       {composeText.trim() ? (
-                        <button type="submit" className="btn composer__icon" disabled={sending}>
-                          ➤
+                        <button
+                          type="submit"
+                          className="btn composer__icon"
+                          disabled={sending}
+                          title="Send"
+                          aria-label="Send"
+                        >
+                          <SendIcon />
                         </button>
                       ) : (
                         <button
@@ -733,8 +773,9 @@ export default function Messages({ waReady }) {
                           onClick={startRecording}
                           disabled={sending}
                           title="Record a voice note"
+                          aria-label="Record a voice note"
                         >
-                          🎤
+                          <MicIcon />
                         </button>
                       )}
                     </>

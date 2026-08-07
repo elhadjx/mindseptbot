@@ -75,6 +75,10 @@
   border-bottom: 1px solid var(--clr-border);
   background: transparent;
   font: inherit;
+  /* Explicit, because a <button> otherwise inherits the UA's `buttontext`,
+     and `color-scheme: light dark` resolves that against the OS preference -
+     so a light panel on a dark-mode machine rendered chat names in white. */
+  color: var(--clr-text);
   text-align: left;
   cursor: pointer;
   transition: background var(--dur) var(--ease-settle);

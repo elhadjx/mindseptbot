@@ -62,6 +62,7 @@ export const api = {
   markChatRead: (chatId) =>
     request(`/messages/chats/${encodeURIComponent(chatId)}/read`, { method: 'POST' }),
   chatMediaUrl: (messageId) => `/api/messages/messages/${encodeURIComponent(messageId)}/media`,
+  chatAvatarUrl: (chatId) => `/api/messages/chats/${encodeURIComponent(chatId)}/avatar`,
   // Multipart, not JSON - bypasses request() so the browser sets its own
   // Content-Type with the multipart boundary.
   sendChatMedia: async (chatId, formData) => {

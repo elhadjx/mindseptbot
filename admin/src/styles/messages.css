@@ -95,6 +95,12 @@
   color: var(--clr-granted);
 }
 
+/* A real profile photo fills the same pebble the initials sit in. */
+.chat-item__avatar--photo {
+  object-fit: cover;
+  background: var(--clr-surface-sunken);
+}
+
 .chat-item__body {
   flex: 1;
   min-width: 0;

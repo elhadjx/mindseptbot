@@ -275,9 +275,41 @@ async function main() {
 
   // whatsapp-web.js looks the sent message back up by its new key and returns
   // undefined when that misses - the message is already gone out. Mapping the
-  // undefined is what produced "Cannot read properties of undefined".
-  sent = await sendMessage({ sendMessage: async () => undefined }, '133302967075006@lid', 'yo');
-  check('a missing post-send model is null, not a throw', sent === null, String(sent));
+  // undefined is what produced "Cannot read properties of undefined"; giving
+  // up and returning null left the sent message invisible until a reload.
+  const lidClient = fetchClient({
+    msgs: [rawMsg('old', { body: 'earlier', t: 1 }), rawMsg('new', { body: 'yo', t: 2, fromMe: true })],
+  });
+  lidClient.sendMessage = async () => undefined;
+  sent = await sendMessage(lidClient, '133302967075006@lid', 'yo');
+  check(
+    'a missed post-send lookup reads the message back',
+    sent && sent.id === 'new' && sent.fromMe === true,
+    JSON.stringify(sent)
+  );
+
+  // If someone else's message landed in the gap, attributing it to us would
+  // be worse than showing nothing.
+  const racedClient = fetchClient({ msgs: [rawMsg('theirs', { body: 'hi', t: 3 })] });
+  racedClient.sendMessage = async () => undefined;
+  sent = await sendMessage(racedClient, '133302967075006@lid', 'yo');
+  check('an incoming message is never claimed as ours', sent === null, JSON.stringify(sent));
+
+  // A read-back that itself fails must not turn a delivered message into an
+  // error response.
+  const brokenClient = {
+    sendMessage: async () => undefined,
+    pupPage: {
+      evaluate: async () => {
+        throw new Error('r');
+      },
+    },
+    getChatById: async () => {
+      throw new Error('r');
+    },
+  };
+  sent = await sendMessage(brokenClient, '133302967075006@lid', 'yo');
+  check('a failed read-back degrades to null, not a throw', sent === null, String(sent));
 
   console.log('\n-- chatIdFor --');
   check(

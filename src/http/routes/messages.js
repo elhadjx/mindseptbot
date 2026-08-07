@@ -9,6 +9,7 @@ const {
   markRead,
   downloadMessageMedia,
   sendMedia,
+  getAvatarUrl,
 } = require('../../whatsapp/messages');
 const { describePageError, requireReady } = require('../wa');
 const { resolveRange } = require('../range');
@@ -27,6 +28,38 @@ router.get('/chats', requireReady, async (req, res) => {
   } catch (err) {
     console.error('[api] listing chats failed:', err);
     res.status(500).json({ ok: false, error: describePageError(err, 'Could not list chats') });
+  }
+});
+
+// Profile pictures, resolved one chat at a time as the list scrolls rather
+// than as part of the chat listing - each lookup is a round trip to
+// WhatsApp's servers, and 50 of them would make opening the tab crawl.
+// Resolved URLs are cached because the panel re-asks on every mount.
+const AVATAR_TTL_MS = 10 * 60 * 1000;
+const avatarCache = new Map(); // chatId -> { at, url }
+
+router.get('/chats/:id/avatar', requireReady, async (req, res) => {
+  const chatId = req.params.id;
+  try {
+    const hit = avatarCache.get(chatId);
+    let url = hit && Date.now() - hit.at < AVATAR_TTL_MS ? hit.url : undefined;
+
+    if (url === undefined) {
+      url = await getAvatarUrl(getClient(), chatId);
+      avatarCache.set(chatId, { at: Date.now(), url });
+    }
+
+    // No picture, or their privacy settings hide it - the panel falls back to
+    // initials, so this is an ordinary outcome rather than an error.
+    if (!url) return res.status(404).json({ ok: false, error: 'no_avatar' });
+
+    // The eurl points at WhatsApp's CDN and needs no credentials; redirecting
+    // keeps the image bytes off this server entirely.
+    res.set('Cache-Control', 'private, max-age=600');
+    return res.redirect(302, url);
+  } catch (err) {
+    console.error('[api] avatar lookup failed:', err);
+    return res.status(404).json({ ok: false, error: 'no_avatar' });
   }
 });
 

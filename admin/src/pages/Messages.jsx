@@ -44,10 +44,51 @@ function formatClock(ts) {
   return new Date(ts * 1000).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
+/**
+ * Union two views of a conversation by message id, oldest first.
+ *
+ * The server's copy wins on conflict (it carries real delivery acks), while
+ * anything local it hasn't caught up with yet is kept rather than made to
+ * flicker out and back in.
+ */
+function mergeMessages(prev, fresh) {
+  const byId = new Map();
+  for (const m of fresh) byId.set(m.id, m);
+  for (const m of prev) if (!byId.has(m.id)) byId.set(m.id, m);
+  // Array.sort is stable, so same-second messages keep the server's order.
+  return [...byId.values()].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+}
+
 function formatSeconds(total) {
   const m = String(Math.floor(total / 60)).padStart(2, '0');
   const s = String(total % 60).padStart(2, '0');
   return `${m}:${s}`;
+}
+
+/**
+ * Profile picture, with initials as the resting state rather than a fallback
+ * bolted on: plenty of chats have no picture, or hide it, and a broken image
+ * icon in a contact list looks like a bug.
+ */
+function Avatar({ chatId, name }) {
+  const [failed, setFailed] = useState(false);
+
+  if (failed || !chatId) {
+    return (
+      <span className="chat-item__avatar" aria-hidden="true">
+        {initials(name)}
+      </span>
+    );
+  }
+  return (
+    <img
+      className="chat-item__avatar chat-item__avatar--photo"
+      src={api.chatAvatarUrl(chatId)}
+      alt=""
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
 }
 
 function AckMark({ ack }) {
@@ -161,9 +202,7 @@ function ChatList({ chats, loading, selectedId, query, onQuery, onSelect, onRefr
             className={`chat-item ${selectedId === c.id ? 'chat-item--active' : ''}`}
             onClick={() => onSelect(c)}
           >
-            <span className="chat-item__avatar" aria-hidden="true">
-              {initials(c.name)}
-            </span>
+            <Avatar chatId={c.id} name={c.name} />
             <span className="chat-item__body">
               <span className="chat-item__row">
                 <span className="chat-item__name">{c.name}</span>
@@ -196,6 +235,7 @@ export default function Messages({ waReady }) {
 
   const selectedIdRef = useRef(null);
   const scrollRef = useRef(null);
+  const atBottomRef = useRef(true);
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
@@ -205,15 +245,15 @@ export default function Messages({ waReady }) {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
 
-  const loadChats = useCallback(async ({ silent = false } = {}) => {
-    setLoadingChats(true);
+  const loadChats = useCallback(async ({ silent = false, background = false } = {}) => {
+    if (!background) setLoadingChats(true);
     try {
       const { chats: list } = await api.chats();
       setChats(list);
     } catch (err) {
       if (!silent) setFlash({ ok: false, message: err.message });
     } finally {
-      setLoadingChats(false);
+      if (!background) setLoadingChats(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -227,6 +267,8 @@ export default function Messages({ waReady }) {
     setSelectedId(chat.id);
     setMessages([]);
     setLoadingMessages(true);
+    // A freshly opened chat starts pinned to its newest message.
+    atBottomRef.current = true;
     setChats((prev) => prev?.map((c) => (c.id === chat.id ? { ...c, unreadCount: 0 } : c)) ?? prev);
     try {
       const { messages: list } = await api.chatMessages(chat.id, { limit: 50 });
@@ -238,6 +280,38 @@ export default function Messages({ waReady }) {
       setLoadingMessages(false);
     }
   }
+
+  /**
+   * Refresh on a timer as well as over the stream.
+   *
+   * The SSE stream is the fast path, but it is a long-lived connection through
+   * whatever proxy sits in front of this app, and when it is silently dropped
+   * the tab just quietly stops updating - which looks exactly like the app
+   * being broken. Polling makes the tab correct on its own and leaves the
+   * stream as an optimisation.
+   */
+  useEffect(() => {
+    if (!waReady || !selectedId) return undefined;
+    const timer = setInterval(async () => {
+      // Nothing to reconcile against a backgrounded tab.
+      if (document.hidden) return;
+      try {
+        const { messages: list } = await api.chatMessages(selectedId, { limit: 50 });
+        setMessages((prev) => mergeMessages(prev, list));
+      } catch {
+        // Transient - the next tick tries again.
+      }
+    }, 8000);
+    return () => clearInterval(timer);
+  }, [waReady, selectedId]);
+
+  useEffect(() => {
+    if (!waReady) return undefined;
+    const timer = setInterval(() => {
+      if (!document.hidden) loadChats({ silent: true, background: true });
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [waReady, loadChats]);
 
   // Live updates: append to the open conversation, bump the chat list.
   useEffect(() => {
@@ -291,17 +365,26 @@ export default function Messages({ waReady }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [waReady]);
 
-  // Always scroll to the newest message.
+  // Follow the newest message, but only while the reader is actually at the
+  // bottom - a refresh landing mid-scroll must not yank them out of the
+  // history they were reading.
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [messages, selectedId]);
 
-  // A send can succeed without handing back the stored message (see
-  // sendMessage in whatsapp/messages.js). The MESSAGE_CREATE stream delivers
-  // it a moment later, so there is nothing to do here but not crash.
+  function onConversationScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  }
+
+  // A send can still come back without a stored message if the read-back in
+  // whatsapp/messages.js also missed; the poll below reconciles it shortly.
   function appendOwnMessage(message) {
     if (!message?.id) return;
+    // Sending is an explicit act - always follow it down.
+    atBottomRef.current = true;
     setMessages((prev) => (prev.some((m) => m.id === message.id) ? prev : [...prev, message]));
   }
 
@@ -423,9 +506,7 @@ export default function Messages({ waReady }) {
                   >
                     ← Back
                   </button>
-                  <span className="chat-item__avatar" aria-hidden="true">
-                    {initials(selectedChat.name)}
-                  </span>
+                  <Avatar chatId={selectedChat.id} name={selectedChat.name} />
                   <div className="conversation__title">
                     <div>{selectedChat.name}</div>
                     {selectedChat.isGroup && (
@@ -436,7 +517,7 @@ export default function Messages({ waReady }) {
                   </div>
                 </div>
 
-                <div className="conversation__scroll" ref={scrollRef}>
+                <div className="conversation__scroll" ref={scrollRef} onScroll={onConversationScroll}>
                   {loadingMessages && messages.length === 0 && <Empty>Loading…</Empty>}
                   {!loadingMessages && messages.length === 0 && <Empty>No messages yet.</Empty>}
                   {messages.map((m) => (

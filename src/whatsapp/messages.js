@@ -206,17 +206,29 @@ async function fetchMessages(client, chatId, { limit = 50 } = {}) {
  * whatsapp-web.js hands the message to the chat and THEN looks the sent model
  * back up by its new key (`Msg.get(newMsgKey._serialized)`). Under LID
  * addressing that lookup can miss, and `client.sendMessage()` returns
- * undefined even though the message has already gone out. Mapping that
- * undefined is what produced "Cannot read properties of undefined (reading
- * 'id')" - reported as a send failure for a message the recipient had
- * already received.
+ * undefined even though the message has already gone out - which is what
+ * produced "Cannot read properties of undefined (reading 'id')".
  *
- * So a missing model is not an error: return null and let the MESSAGE_CREATE
- * event deliver the real message over the stream a moment later.
+ * Returning null there is no good either: the panel has nothing to render, so
+ * a message that was genuinely sent stays invisible until a reload. Read the
+ * chat's newest message back instead - it is the one we just added to it.
  */
+async function readBackSentMessage(client, chatId) {
+  try {
+    const recent = await fetchMessages(client, chatId, { limit: 1 });
+    const newest = recent?.[recent.length - 1];
+    // Only ours: if something arrived in the intervening moment, we would
+    // rather show nothing than attribute someone else's message to us.
+    return newest?.fromMe ? newest : null;
+  } catch (err) {
+    console.warn(`[wa] could not read back the sent message: ${err.message}`);
+    return null;
+  }
+}
+
 async function sendMessage(client, chatId, text) {
   const msg = await client.sendMessage(chatId, text);
-  return msg ? mapMessage(msg) : null;
+  return msg ? mapMessage(msg) : readBackSentMessage(client, chatId);
 }
 
 async function markRead(client, chatId) {
@@ -325,8 +337,47 @@ async function sendMedia(
     sendAudioAsVoice: Boolean(asVoice),
     sendMediaAsDocument: Boolean(asDocument),
   });
-  // Same post-send lookup caveat as sendMessage() above.
-  return msg ? mapMessage(msg) : null;
+  // Same post-send lookup caveat as sendMessage() above. This matters more
+  // for media: without a real message id the panel has no URL to fetch the
+  // photo or voice note back from, so the bubble would never render.
+  return msg ? mapMessage(msg) : readBackSentMessage(client, chatId);
+}
+
+/**
+ * Profile picture for a chat, as a URL on WhatsApp's own CDN.
+ *
+ * `client.getProfilePicUrl()` resolves the chat with getAsModel left on,
+ * which is the network-bound full model build this file avoids everywhere
+ * else - so ask for the raw chat instead.
+ */
+async function getAvatarUrlFast(client, chatId) {
+  return client.pupPage.evaluate(async (id) => {
+    try {
+      const chat = await window.WWebJS.getChat(id, { getAsModel: false });
+      if (!chat) return null;
+      const pic = await window
+        .require('WAWebContactProfilePicThumbBridge')
+        .requestProfilePicFromServer(chat);
+      return pic?.eurl || null;
+    } catch (err) {
+      // No picture set, or not visible to us under their privacy settings.
+      if (err.name === 'ServerStatusCodeError') return null;
+      throw err;
+    }
+  }, chatId);
+}
+
+async function getAvatarUrl(client, chatId) {
+  try {
+    return (await getAvatarUrlFast(client, chatId)) || null;
+  } catch (err) {
+    console.warn(`[wa] fast avatar lookup failed (${err.message}), falling back`);
+    try {
+      return (await client.getProfilePicUrl(chatId)) || null;
+    } catch {
+      return null;
+    }
+  }
 }
 
 module.exports = {
@@ -344,4 +395,5 @@ module.exports = {
   downloadMessageMediaFast,
   downloadMessageMediaViaMessage,
   sendMedia,
+  getAvatarUrl,
 };

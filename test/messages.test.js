@@ -238,6 +238,49 @@ async function main() {
   const rawVoice = mapMessage({ id: { _serialized: 'ptt1' }, type: 'ptt', t: 9 });
   check('a voice note counts as media', rawVoice.hasMedia === true);
 
+  console.log('\n-- mapMessage: the body of a media message is a thumbnail --');
+  // WhatsApp stores a base64 JPEG preview in `body` on media messages and the
+  // caption in `caption`. Reading `body` as text rendered a photo as a wall
+  // of base64 where its caption belonged.
+  const THUMB = 'ffd8ffe0'.repeat(20); // base64-shaped and long enough to pass
+  const withThumb = mapMessage({
+    id: { _serialized: 'img3' },
+    type: 'image',
+    body: THUMB,
+    caption: 'the real caption',
+    t: 4,
+  });
+  check('the caption wins, never the thumbnail', withThumb.body === 'the real caption', withThumb.body);
+  check('  and the thumbnail is offered as a data URI', withThumb.thumbnail === `data:image/jpeg;base64,${THUMB}`);
+
+  const noCaption = mapMessage({ id: { _serialized: 'img4' }, type: 'image', body: THUMB });
+  check('a photo with no caption has an empty body', noCaption.body === '', JSON.stringify(noCaption.body));
+
+  // On a live Message the library has already resolved body to the caption,
+  // and the raw model sits under _data.
+  const liveThumb = mapMessage({
+    id: { _serialized: 'img5' },
+    type: 'image',
+    hasMedia: true,
+    body: 'live caption',
+    _data: { body: THUMB },
+  });
+  check('a live Message keeps its resolved caption', liveThumb.body === 'live caption');
+  check('  and still exposes the thumbnail', liveThumb.thumbnail === `data:image/jpeg;base64,${THUMB}`);
+
+  check(
+    'a voice note offers no thumbnail',
+    mapMessage({ id: { _serialized: 'p2' }, type: 'ptt', body: THUMB }).thumbnail === null
+  );
+  check(
+    'plain text is never mistaken for a thumbnail',
+    mapMessage({ id: { _serialized: 't2' }, type: 'chat', body: 'hello' }).thumbnail === null
+  );
+  check(
+    'a short or non-base64 body is not a thumbnail',
+    mapMessage({ id: { _serialized: 'i6' }, type: 'image', body: 'hi!! not base64' }).thumbnail === null
+  );
+
   const liveImage = mapMessage({
     id: { _serialized: 'img2' },
     type: 'image',

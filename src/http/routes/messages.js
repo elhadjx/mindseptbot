@@ -120,7 +120,11 @@ router.post('/chats/:id/media', requireReady, upload.single('file'), async (req,
 router.get('/messages/:id/media', requireReady, async (req, res) => {
   try {
     const media = await downloadMessageMedia(getClient(), req.params.id);
-    if (!media) return res.status(404).json({ ok: false, error: 'no_media' });
+    if (!media?.data) {
+      // Carry the reason out to the client: the panel falls back to the
+      // thumbnail either way, but "why" belongs somewhere visible.
+      return res.status(404).json({ ok: false, error: media?.error || 'no_media' });
+    }
 
     const buffer = Buffer.from(media.data, 'base64');
     res.set({

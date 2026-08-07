@@ -22,17 +22,41 @@ const CHAT_SERVERS = new Set(['c.us', 'lid', 'g.us']);
 // came from. Getting this wrong renders a photo as an empty text bubble.
 const MEDIA_TYPES = new Set(['image', 'video', 'audio', 'ptt', 'document', 'sticker']);
 
+// Types that carry a thumbnail in the message body (see thumbnailOf).
+const THUMBNAILED = new Set(['image', 'video', 'sticker']);
+
+/**
+ * On a media message WhatsApp puts a base64 JPEG preview in `body` - not the
+ * caption. Reading it as text is how a photo ended up rendering as a wall of
+ * base64 where its caption should be.
+ *
+ * It is worth keeping, though: it is already in hand, and it lets a photo
+ * show something real even when fetching the full-size bytes fails.
+ */
+function thumbnailOf(m, hasMedia) {
+  if (!hasMedia || !THUMBNAILED.has(m.type)) return null;
+  // On a live Message the raw model is tucked away under _data.
+  const raw = typeof m.hasMedia === 'boolean' ? m._data?.body : m.body;
+  if (typeof raw !== 'string' || raw.length < 64) return null;
+  if (!/^[A-Za-z0-9+/\r\n]+={0,2}$/.test(raw)) return null;
+  return `data:image/jpeg;base64,${raw}`;
+}
+
 /** Shape shared by every message we hand to the panel, live or historical. */
 function mapMessage(m) {
   const hasMedia =
     MEDIA_TYPES.has(m.type) ||
     Boolean(typeof m.hasMedia === 'boolean' ? m.hasMedia : m.directPath);
 
+  // A live Message has already resolved this to the caption; a serialized
+  // model still has the caption in `caption` and a thumbnail in `body`.
+  const isLive = typeof m.hasMedia === 'boolean';
+  const text = hasMedia ? (isLive ? m.body : m.caption) : m.body;
+
   return {
     id: m.id?._serialized || String(m.id),
-    // A live Message has already folded the caption into `body`; a serialized
-    // model keeps the two apart and leaves `body` empty on media.
-    body: (hasMedia ? m.body || m.caption : m.body) || '',
+    body: text || '',
+    thumbnail: thumbnailOf(m, hasMedia),
     timestamp: m.timestamp ?? m.t ?? null,
     fromMe: Boolean(m.fromMe ?? m.id?.fromMe),
     author: typeof m.author === 'object' ? m.author?._serialized || null : m.author || null,
@@ -255,14 +279,22 @@ async function downloadMessageMediaFast(client, messageId) {
       collections.Msg.get(msgId) ||
       (await collections.Msg.getMessagesById([msgId]))?.messages?.[0];
 
+    // Report WHY rather than a bare null - "the photo did not load" with no
+    // reason is not something anyone can act on from a deploy log.
+    if (!msg) return { error: 'message_not_found' };
+    if (!msg.mediaData) return { error: 'no_media_data' };
     // REUPLOADING means the media expired and the phone is re-uploading it.
-    if (!msg || !msg.mediaData || msg.mediaData.mediaStage === 'REUPLOADING') return null;
+    if (msg.mediaData.mediaStage === 'REUPLOADING') return { error: 'reuploading' };
 
     if (msg.mediaData.mediaStage !== 'RESOLVED') {
-      await msg.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 });
+      try {
+        await msg.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 });
+      } catch (err) {
+        return { error: `resolve_failed: ${err?.message || err}` };
+      }
     }
     if (msg.mediaData.mediaStage.includes('ERROR') || msg.mediaData.mediaStage === 'FETCHING') {
-      return null;
+      return { error: `bad_stage: ${msg.mediaData.mediaStage}` };
     }
 
     // The download manager wants a performance-logging handle; it only ever
@@ -276,24 +308,28 @@ async function downloadMessageMediaFast(client, messageId) {
       },
     };
 
-    const decrypted = await window
-      .require('WAWebDownloadManager')
-      .downloadManager.downloadAndMaybeDecrypt({
-        directPath: msg.directPath,
-        encFilehash: msg.encFilehash,
-        filehash: msg.filehash,
-        mediaKey: msg.mediaKey,
-        mediaKeyTimestamp: msg.mediaKeyTimestamp,
-        type: msg.type,
-        signal: new AbortController().signal,
-        downloadQpl: mockQpl,
-      });
+    try {
+      const decrypted = await window
+        .require('WAWebDownloadManager')
+        .downloadManager.downloadAndMaybeDecrypt({
+          directPath: msg.directPath,
+          encFilehash: msg.encFilehash,
+          filehash: msg.filehash,
+          mediaKey: msg.mediaKey,
+          mediaKeyTimestamp: msg.mediaKeyTimestamp,
+          type: msg.type,
+          signal: new AbortController().signal,
+          downloadQpl: mockQpl,
+        });
 
-    return {
-      data: await window.WWebJS.arrayBufferToBase64Async(decrypted),
-      mimetype: msg.mimetype,
-      filename: msg.filename,
-    };
+      return {
+        data: await window.WWebJS.arrayBufferToBase64Async(decrypted),
+        mimetype: msg.mimetype,
+        filename: msg.filename,
+      };
+    } catch (err) {
+      return { error: `download_failed: ${err?.message || err}` };
+    }
   }, messageId);
 }
 
@@ -311,9 +347,23 @@ async function downloadMessageMedia(client, messageId) {
     media = await downloadMessageMediaFast(client, messageId);
   } catch (err) {
     console.warn(`[wa] fast media download failed (${err.message}), falling back to the message`);
-    media = await downloadMessageMediaViaMessage(client, messageId);
+    media = null;
   }
-  if (!media?.data) return null;
+
+  // The fast path reports why it gave up; try the library's own route before
+  // believing it, then say what happened.
+  if (!media?.data) {
+    const reason = media?.error || 'unavailable';
+    try {
+      const viaMessage = await downloadMessageMediaViaMessage(client, messageId);
+      if (viaMessage?.data) media = viaMessage;
+      else console.warn(`[wa] media ${messageId} unavailable: ${reason}`);
+    } catch (err) {
+      console.warn(`[wa] media ${messageId} unavailable: ${reason}; fallback: ${err.message}`);
+    }
+  }
+
+  if (!media?.data) return { error: media?.error || 'unavailable' };
   return {
     mimetype: media.mimetype || null,
     data: media.data,

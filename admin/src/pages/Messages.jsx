@@ -150,8 +150,20 @@ function MessageBubble({ message }) {
   return (
     <div className={`bubble ${message.fromMe ? 'bubble--out' : 'bubble--in'}`}>
       {mediaFailed ? (
-        <div className="bubble__text muted">
-          {MEDIA_PREVIEW[message.type] || '📎 Attachment'} — not available.
+        // WhatsApp expires media the phone has to re-upload before it can be
+        // fetched again. The preview that came with the message still shows
+        // what it was, which beats a shrug.
+        <div className="bubble__media">
+          {message.thumbnail ? (
+            <>
+              <img src={message.thumbnail} alt={message.body || 'Preview'} />
+              <div className="bubble__caption muted">Preview only — full size unavailable.</div>
+            </>
+          ) : (
+            <div className="bubble__text muted">
+              {MEDIA_PREVIEW[message.type] || '📎 Attachment'} — not available.
+            </div>
+          )}
           {message.body && <div className="bubble__caption">{message.body}</div>}
         </div>
       ) : (

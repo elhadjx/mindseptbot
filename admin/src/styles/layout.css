@@ -327,6 +327,10 @@
   color: var(--clr-text-soft);
 }
 
+/* Below this width the sidebar collapses into a slim top header (brand +
+   status + theme/sign-out) and the nav becomes a fixed bottom tab bar - the
+   thumb-reachable pattern every mobile app uses, rather than a horizontal
+   scroller that hides items off-screen. */
 @media (max-width: 860px) {
   .shell {
     grid-template-columns: 1fr;
@@ -335,32 +339,97 @@
   .sidebar {
     border-right: none;
     border-bottom: 1px solid var(--clr-border);
-    padding: var(--sp-4);
-    gap: var(--sp-4);
+    padding: var(--sp-3) var(--sp-4);
+    gap: var(--sp-3);
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
   }
 
+  .brand__sub {
+    display: none;
+  }
+
+  /* Taken out of the header's flow and pinned to the bottom of the viewport -
+     its position in the JSX (between brand and foot) doesn't matter here. */
   .nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
     flex-direction: row;
-    overflow-x: auto;
-    padding-bottom: var(--sp-1);
+    justify-content: space-around;
+    gap: 0;
+    padding: var(--sp-1) var(--sp-1) calc(var(--sp-1) + env(safe-area-inset-bottom, 0px));
+    background: var(--clr-surface);
+    border-top: 1px solid var(--clr-border);
+    box-shadow: var(--sh-2);
   }
 
   .nav__item {
+    flex: 1 1 0;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--sp-2) var(--sp-1);
+    font-size: var(--fs-xs);
     white-space: nowrap;
+  }
+
+  .nav__item:hover {
+    transform: none;
+  }
+
+  .nav__icon {
+    font-size: 1.15rem;
   }
 
   .sidebar__foot {
     margin-top: 0;
     flex-direction: row;
-    justify-content: space-between;
     align-items: center;
+    gap: var(--sp-3);
+  }
+
+  /* The status label ("WhatsApp connected") doesn't fit a slim header - the
+     dot alone still carries the at-a-glance signal, and the Connection tab
+     (one tap away, in the tab bar) has the full text. */
+  .sidebar__foot .row:first-child .muted {
+    display: none;
   }
 
   .main {
-    padding: var(--sp-5) var(--sp-4) var(--sp-6);
+    padding: var(--sp-5) var(--sp-4) calc(var(--sp-7) + 72px);
   }
 
   .qr-panel {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Larger tap targets wherever the pointer is a finger, not a cursor. */
+@media (pointer: coarse) {
+  .btn--sm {
+    min-height: 2.5rem;
+    padding-top: var(--sp-3);
+    padding-bottom: var(--sp-3);
+  }
+
+  .nav__item {
+    min-height: 2.75rem;
+  }
+
+  .toggle {
+    width: 3.25rem;
+    height: 1.85rem;
+  }
+
+  .toggle__track::before {
+    width: 1.35rem;
+    height: 1.35rem;
+  }
+
+  .toggle input:checked + .toggle__track::before {
+    transform: translateX(1.4rem);
   }
 }

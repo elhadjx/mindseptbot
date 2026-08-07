@@ -199,9 +199,11 @@ export default function Members({ settings }) {
                   const known = byIdentity.get(p.waId) || byIdentity.get(p.lid) || byIdentity.get(p.phone);
                   return (
                     <tr key={p.waId}>
-                      <td>{p.name || <span className="muted">—</span>}</td>
-                      <td>{p.phone ? `+${p.phone}` : <span className="muted">hidden (LID)</span>}</td>
-                      <td className="mono">{p.waId}</td>
+                      <td data-label="Name">{p.name || <span className="muted">—</span>}</td>
+                      <td data-label="Phone">
+                        {p.phone ? `+${p.phone}` : <span className="muted">hidden (LID)</span>}
+                      </td>
+                      <td className="mono" data-label="WhatsApp id">{p.waId}</td>
                       <td style={{ textAlign: 'right' }}>
                         {known ? (
                           <span className="chip chip--granted">
@@ -298,17 +300,19 @@ export default function Members({ settings }) {
               <tbody>
                 {filtered.map((member) => (
                   <tr key={member._id}>
-                    <td>
+                    <td data-label="Allowed">
                       <Toggle
                         checked={member.enabled}
                         onChange={(v) => toggleMember(member, v)}
                         label={`Allow ${member.displayName || member.phone}`}
                       />
                     </td>
-                    <td>{member.displayName || <span className="muted">—</span>}</td>
-                    <td>{member.phone ? `+${member.phone}` : <span className="muted">—</span>}</td>
-                    <td className="mono">{member.waId || member.lid}</td>
-                    <td className="muted">{formatDateTime(member.lastOpenedAt)}</td>
+                    <td data-label="Name">{member.displayName || <span className="muted">—</span>}</td>
+                    <td data-label="Phone">
+                      {member.phone ? `+${member.phone}` : <span className="muted">—</span>}
+                    </td>
+                    <td className="mono" data-label="WhatsApp id">{member.waId || member.lid}</td>
+                    <td className="muted" data-label="Last open">{formatDateTime(member.lastOpenedAt)}</td>
                     <td style={{ textAlign: 'right' }}>
                       <button className="btn btn--ghost btn--sm" onClick={() => removeMember(member)}>
                         Remove

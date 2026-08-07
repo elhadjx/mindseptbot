@@ -349,6 +349,86 @@ a {
   background: var(--clr-surface-sunken);
 }
 
+/* Below this width a table row doesn't fit a phone screen even with
+   horizontal scroll - it restacks as a card of label/value pairs instead.
+   Cells carry their own `data-label` (set per page); a cell without one
+   (typically the trailing actions column) is just right-aligned content. */
+@media (max-width: 640px) {
+  .table-wrap {
+    overflow: visible;
+    border: none;
+    border-radius: 0;
+  }
+
+  .table thead {
+    display: none;
+  }
+
+  .table,
+  .table tbody,
+  .table tr,
+  .table td {
+    display: block;
+    width: 100%;
+  }
+
+  .table tr {
+    margin-bottom: var(--sp-3);
+    padding: var(--sp-3) var(--sp-4);
+    border: 1px solid var(--clr-border);
+    border-radius: var(--r-md);
+    background: var(--clr-surface);
+  }
+
+  .table tr:last-child {
+    margin-bottom: 0;
+  }
+
+  .table tr:hover td {
+    background: transparent;
+  }
+
+  /* Label stacks above value rather than sitting beside it - a cell can be a
+     button, a chip, or several stacked lines (Activity's "Who" column is name
+     over number), and a column layout survives all three without special
+     cases. */
+  .table td {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    min-width: 0;
+    padding: var(--sp-2) 0;
+    border-top: none;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+
+  .table td:not(:last-child) {
+    border-bottom: 1px solid var(--clr-border);
+  }
+
+  .table td:not([data-label]) {
+    align-items: flex-end;
+  }
+
+  .table td[data-label]::before {
+    content: attr(data-label);
+    font-weight: 600;
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--clr-text-soft);
+  }
+
+  /* Only there to skip a grid cell and align two fields onto their own row at
+     the two-column width - at one column every field is already on its own
+     row, so the empty cell would just be a blank gap. */
+  .grid-2__spacer {
+    display: none;
+  }
+}
+
 .mono {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);

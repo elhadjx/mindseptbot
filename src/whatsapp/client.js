@@ -6,6 +6,7 @@ const { MongoSessionStore } = require('./mongo-session-store');
 const { config } = require('../config');
 const { mongoose } = require('../db/mongo');
 const { bus, EVENTS } = require('../events');
+const { mapMessage, chatIdFor } = require('./messages');
 
 // Live connection state, mirrored to the admin panel over SSE.
 const state = {
@@ -161,10 +162,30 @@ function wireEvents(instance) {
   });
 
   instance.on(Events.MESSAGE_RECEIVED, (msg) => {
+    // The Messages tab wants every message live, independent of whether it
+    // turns out to be a door command - never let that emit block or fail the
+    // command pipeline below.
+    try {
+      bus.emit(EVENTS.WA_MESSAGE, { chatId: chatIdFor(msg), message: mapMessage(msg) });
+    } catch (err) {
+      console.error('[wa] message bus emit failed:', err);
+    }
     // Never let a handler error take down the client.
     Promise.resolve(onMessageHandler(msg)).catch((err) =>
       console.error('[wa] message handler error:', err)
     );
+  });
+
+  // MESSAGE_RECEIVED only fires for messages that arrived, not ones we sent -
+  // so a message sent from the phone itself (or another linked session) needs
+  // this separate event to reach the panel live.
+  instance.on(Events.MESSAGE_CREATE, (msg) => {
+    if (!msg.fromMe) return;
+    try {
+      bus.emit(EVENTS.WA_MESSAGE, { chatId: chatIdFor(msg), message: mapMessage(msg) });
+    } catch (err) {
+      console.error('[wa] message bus emit failed:', err);
+    }
   });
 }
 

@@ -166,15 +166,15 @@ export default function Contacts({ waReady }) {
                         byIdentity.get(c.waId) || byIdentity.get(c.lid) || byIdentity.get(c.phone);
                       return (
                         <tr key={c.waId}>
-                          <td>
+                          <td data-label="Name">
                             {c.label}
                             {c.isBusiness && <span className="muted"> · business</span>}
                             {c.isBlocked && <span className="muted"> · blocked</span>}
                           </td>
-                          <td>
+                          <td data-label="Phone">
                             {c.phone ? `+${c.phone}` : <span className="muted">hidden (LID)</span>}
                           </td>
-                          <td className="mono">{c.waId}</td>
+                          <td className="mono" data-label="WhatsApp id">{c.waId}</td>
                           <td style={{ textAlign: 'right' }}>
                             {known ? (
                               <span className="chip chip--granted">

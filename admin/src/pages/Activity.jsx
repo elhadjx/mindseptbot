@@ -116,8 +116,10 @@ export default function Activity() {
                 <tbody>
                   {data.entries.map((entry) => (
                     <tr key={entry._id}>
-                      <td style={{ whiteSpace: 'nowrap' }}>{formatDateTime(entry.at)}</td>
-                      <td>
+                      <td style={{ whiteSpace: 'nowrap' }} data-label="When">
+                        {formatDateTime(entry.at)}
+                      </td>
+                      <td data-label="Result">
                         <div className="row" style={{ gap: 'var(--sp-2)' }}>
                           <DecisionChip decision={entry.decision} />
                           {entry.simulated && (
@@ -127,15 +129,15 @@ export default function Activity() {
                           )}
                         </div>
                       </td>
-                      <td>
+                      <td data-label="Who">
                         <div>{entry.actorName || <span className="muted">Unknown</span>}</div>
                         <div className="mono">
                           {entry.actorPhone ? `+${entry.actorPhone}` : entry.actorWaId || '—'}
                         </div>
                       </td>
-                      <td>{entry.door || '—'}</td>
-                      <td className="mono">{entry.command || '—'}</td>
-                      <td>
+                      <td data-label="Door">{entry.door || '—'}</td>
+                      <td className="mono" data-label="Command">{entry.command || '—'}</td>
+                      <td data-label="Where">
                         {/* chatType is absent on rows written before one-to-one
                             chats existed - those were always groups. */}
                         {entry.chatType === 'dm' ? (
@@ -150,7 +152,7 @@ export default function Activity() {
                           <span className="muted">—</span>
                         )}
                       </td>
-                      <td className="muted">
+                      <td className="muted" data-label="Detail">
                         {entry.reason || (entry.durationMs != null ? `${entry.durationMs}ms` : '—')}
                         {entry.source === 'panel' && (
                           <span className="chip" style={{ marginLeft: 'var(--sp-2)' }}>panel</span>

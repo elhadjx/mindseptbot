@@ -526,7 +526,7 @@ function AdminPasswordCard() {
             onChange={(e) => setCurrent(e.target.value)}
           />
         </Field>
-        <div />
+        <div className="grid-2__spacer" />
         <Field label="New password" hint="At least 8 characters.">
           <input
             className="input"

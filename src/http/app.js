@@ -11,6 +11,7 @@ const memberRoutes = require('./routes/members');
 const logRoutes = require('./routes/logs');
 const settingsRoutes = require('./routes/settings');
 const doorRoutes = require('./routes/doors');
+const messageRoutes = require('./routes/messages');
 
 const ADMIN_DIST = path.join(__dirname, '..', '..', 'admin', 'dist');
 
@@ -36,6 +37,7 @@ function createApp() {
   app.use('/api/logs', logRoutes);
   app.use('/api/settings', settingsRoutes);
   app.use('/api/doors', doorRoutes);
+  app.use('/api/messages', messageRoutes);
 
   app.use('/api', (req, res) => res.status(404).json({ ok: false, error: 'not_found' }));
 

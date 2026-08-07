@@ -10,6 +10,7 @@ bus.setMaxListeners(50);
 const EVENTS = {
   WA_STATE: 'wa:state',
   DOOR_OPENED: 'door:opened',
+  WA_MESSAGE: 'wa:message',
 };
 
 module.exports = { bus, EVENTS };

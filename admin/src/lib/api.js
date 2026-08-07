@@ -48,4 +48,30 @@ export const api = {
 
   doors: () => request('/doors'),
   openDoor: (door) => request(`/doors/${door}/open`, { method: 'POST' }),
+
+  chats: () => request('/messages/chats'),
+  chatMessages: (chatId, { limit } = {}) =>
+    request(
+      `/messages/chats/${encodeURIComponent(chatId)}/messages${limit ? `?limit=${limit}` : ''}`
+    ),
+  sendChatMessage: (chatId, text) =>
+    request(`/messages/chats/${encodeURIComponent(chatId)}/messages`, {
+      method: 'POST',
+      body: { text },
+    }),
+  markChatRead: (chatId) =>
+    request(`/messages/chats/${encodeURIComponent(chatId)}/read`, { method: 'POST' }),
+  chatMediaUrl: (messageId) => `/api/messages/messages/${encodeURIComponent(messageId)}/media`,
+  // Multipart, not JSON - bypasses request() so the browser sets its own
+  // Content-Type with the multipart boundary.
+  sendChatMedia: async (chatId, formData) => {
+    const res = await fetch(`/api/messages/chats/${encodeURIComponent(chatId)}/media`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: formData,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(data.error || `Request failed (${res.status})`, res.status);
+    return data;
+  },
 };

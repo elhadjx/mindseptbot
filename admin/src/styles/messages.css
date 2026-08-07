@@ -1,0 +1,317 @@
+/* Messages tab - a small WhatsApp of its own. Mobile-first: the list and the
+   open conversation are two full-width views that swap on selection; past the
+   shell's own desktop breakpoint they sit side by side instead. */
+
+.messages-page {
+  /* The page itself must not grow past the viewport, or the two independently
+     scrolling panes below end up scrolling the whole page as well. */
+  min-height: 0;
+}
+
+.messages-shell {
+  --tabbar-clearance: 0px;
+  display: grid;
+  grid-template-columns: 1fr;
+  height: calc(100vh - 230px - var(--tabbar-clearance));
+  min-height: 420px;
+  max-height: 780px;
+  border: 1px solid var(--clr-border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: var(--clr-surface);
+  box-shadow: var(--sh-1);
+}
+
+@supports (height: 100dvh) {
+  .messages-shell {
+    height: calc(100dvh - 230px - var(--tabbar-clearance));
+  }
+}
+
+/* --- Chat list ------------------------------------------------------------ */
+.chat-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--clr-border);
+  background: var(--clr-surface);
+}
+
+.chat-list__head {
+  display: flex;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border-bottom: 1px solid var(--clr-border);
+}
+
+.chat-list__head .input {
+  flex: 1;
+}
+
+.chat-list__items {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.chat-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  padding: var(--sp-3) var(--sp-4);
+  border: none;
+  border-bottom: 1px solid var(--clr-border);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease-settle);
+}
+
+.chat-item:hover {
+  background: var(--clr-surface-sunken);
+}
+
+.chat-item--active {
+  background: var(--clr-surface-sunken);
+}
+
+.chat-item__avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: var(--r-blob);
+  background: var(--clr-moss-wash);
+  color: var(--clr-moss-deep);
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+:root[data-theme='dark'] .chat-item__avatar {
+  background: var(--clr-granted-wash);
+  color: var(--clr-granted);
+}
+
+.chat-item__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.chat-item__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.chat-item__name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-item__time {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--clr-text-soft);
+}
+
+.chat-item__preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  color: var(--clr-text-soft);
+}
+
+.chat-item__badge {
+  flex: none;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 var(--sp-1);
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-pill);
+  background: var(--clr-primary);
+  color: var(--clr-on-primary);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+
+/* --- Conversation ----------------------------------------------------------- */
+.conversation {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.conversation__placeholder {
+  display: none;
+  flex: 1;
+  place-items: center;
+}
+
+.conversation__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--clr-border);
+  background: var(--clr-surface);
+}
+
+.conversation__back {
+  display: none;
+}
+
+.conversation__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.conversation__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  background: var(--clr-bg);
+}
+
+/* --- Bubbles ---------------------------------------------------------------- */
+.bubble {
+  max-width: min(78%, 32rem);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-md);
+  background: var(--clr-surface);
+  box-shadow: var(--sh-1);
+  align-self: flex-start;
+}
+
+.bubble--out {
+  align-self: flex-end;
+  background: var(--clr-granted-wash);
+}
+
+.bubble__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bubble__meta {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-top: var(--sp-1);
+  font-size: var(--fs-xs);
+  color: var(--clr-text-soft);
+}
+
+.ack {
+  color: var(--clr-text-soft);
+}
+.ack--read {
+  color: var(--clr-primary);
+}
+.ack--error {
+  color: var(--clr-denied);
+}
+
+.bubble__media img,
+.bubble__media video {
+  display: block;
+  max-width: 100%;
+  border-radius: var(--r-sm);
+}
+
+.bubble__caption {
+  margin-top: var(--sp-1);
+  font-size: var(--fs-sm);
+}
+
+.bubble__audio {
+  max-width: 16rem;
+}
+
+.bubble__document {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--clr-text);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+/* --- Composer ----------------------------------------------------------------- */
+.composer {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border-top: 1px solid var(--clr-border);
+  background: var(--clr-surface);
+}
+
+.composer__input {
+  flex: 1;
+}
+
+.composer__icon {
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  border-radius: var(--r-blob);
+  font-size: 1.1rem;
+}
+
+.composer__recording {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-sm);
+}
+
+/* --- Mobile: list <-> conversation swap instead of a split pane ------------ */
+@media (max-width: 860px) {
+  .messages-shell {
+    --tabbar-clearance: 64px;
+  }
+
+  .messages-shell--list .conversation,
+  .messages-shell--chat .chat-list {
+    display: none;
+  }
+
+  .conversation__back {
+    display: inline-flex;
+  }
+}
+
+/* --- Desktop: permanent split pane ------------------------------------------ */
+@media (min-width: 861px) {
+  .messages-shell {
+    grid-template-columns: minmax(260px, 320px) 1fr;
+  }
+
+  .messages-shell--list .conversation__placeholder {
+    display: grid;
+  }
+}

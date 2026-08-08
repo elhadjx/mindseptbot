@@ -69,7 +69,21 @@ function sameContent(a, b) {
  * the history became impossible.
  */
 function mergeMessages(prev, fresh) {
-  const incoming = Array.isArray(fresh) ? fresh : [];
+  // Ids are the only thing holding a conversation together here, so anything
+  // this union cannot key is left out of it: a message with no id at all is
+  // skipped, and a page whose ids REPEAT is refused wholesale.
+  //
+  // That second case is not hypothetical. The server briefly gave every
+  // message the same id, and because a Map keyed on it keeps one entry per
+  // key, a fifty-message history collapsed into a single bubble a few seconds
+  // after the chat was opened. A view that stops updating is a bad outcome;
+  // silently eating someone's conversation is a far worse one.
+  const incoming = (Array.isArray(fresh) ? fresh : []).filter((m) => m.id);
+  if (new Set(incoming.map((m) => m.id)).size !== incoming.length) {
+    console.warn('[messages] refusing a page of messages with repeated ids');
+    return prev;
+  }
+
   const byId = new Map();
   for (const m of incoming) byId.set(m.id, m);
   for (const m of prev) if (!byId.has(m.id)) byId.set(m.id, m);

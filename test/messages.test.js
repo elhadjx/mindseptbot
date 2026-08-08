@@ -6,6 +6,7 @@ const {
   fetchMessages,
   sendMessage,
   mapMessage,
+  serializeMessageId,
   chatIdFor,
 } = require('../src/whatsapp/messages');
 
@@ -144,9 +145,32 @@ async function main() {
     return { id: { _serialized: id, fromMe }, t, body, isNotification, type: 'chat' };
   }
 
+  /** A message whose key carries the parts a real MsgKey has, not just an id. */
+  function keyedMsg(shortId, { fromMe = false, t = 0, body = '' } = {}) {
+    const remote = '212661234567@c.us';
+    const serialized = `${fromMe}_${remote}_${shortId}`;
+    return {
+      id: { _serialized: serialized, fromMe, remote, id: shortId },
+      t,
+      body,
+      isNotification: false,
+      type: 'chat',
+    };
+  }
+
   /** A client whose pupPage.evaluate runs the fast path for real, against a
    * mocked WWebJS.getChat/getMessageModel and WAWebChatLoadMessages. */
-  function fetchClient({ msgs, getChatThrows = false, viaGetChatById } = {}) {
+  function fetchClient({
+    msgs,
+    getChatThrows = false,
+    viaGetChatById,
+    // Successive pages handed back by loadEarlierMsgs, oldest request first.
+    pages = [],
+    // Mimic getMessageModel dropping the key's _serialized, which is what it
+    // does when it rebuilds the key around an object `remote`.
+    stripSerialized = false,
+  } = {}) {
+    const remaining = [...pages];
     return {
       pupPage: {
         evaluate: async (fn, ...args) => {
@@ -154,10 +178,15 @@ async function main() {
           global.window = {
             WWebJS: {
               getChat: async () => (msgs ? { msgs: { getModelsArray: () => msgs } } : null),
-              getMessageModel: (m) => m,
+              getMessageModel: (m) =>
+                stripSerialized
+                  ? { ...m, id: { fromMe: m.id.fromMe, remote: {}, id: m.id.id } }
+                  : m,
             },
             require: (mod) => {
-              if (mod === 'WAWebChatLoadMessages') return { loadEarlierMsgs: async () => [] };
+              if (mod === 'WAWebChatLoadMessages') {
+                return { loadEarlierMsgs: async () => remaining.shift() || [] };
+              }
               throw new Error(`unexpected module ${mod}`);
             },
           };
@@ -191,6 +220,73 @@ async function main() {
     (await fetchMessages(fetchClient({ msgs: null }), '99999@c.us')) === null
   );
 
+  // getMessageModel rebuilds the key with Object.assign when `remote` is a
+  // Wid, and the serialized id does not always survive that copy. Every
+  // message then came back with the same "[object Object]" id: the panel
+  // unions a conversation by id, so an open chat collapsed to one bubble a
+  // few seconds after it loaded, and media 404'd for all of them.
+  messages = await fetchMessages(
+    fetchClient({
+      stripSerialized: true,
+      msgs: [
+        keyedMsg('AAA', { fromMe: false, t: 1, body: 'first' }),
+        keyedMsg('BBB', { fromMe: true, t: 2, body: 'second' }),
+      ],
+    }),
+    '212661234567@c.us',
+    { limit: 50 }
+  );
+  check(
+    'a stripped key keeps its serialized id',
+    messages.length === 2 &&
+      messages[0].id === 'false_212661234567@c.us_AAA' &&
+      messages[1].id === 'true_212661234567@c.us_BBB',
+    JSON.stringify(messages.map((m) => m.id))
+  );
+  check(
+    'and every message keeps its OWN id',
+    new Set(messages.map((m) => m.id)).size === messages.length
+  );
+
+  // Second line of defence: nothing recoverable in the page either, so the id
+  // has to be rebuilt from the key's parts on this side.
+  messages = await fetchMessages(
+    fetchClient({
+      msgs: [
+        { id: { fromMe: false, remote: '212661234567@c.us', id: 'AAA' }, t: 1, type: 'chat' },
+        { id: { fromMe: true, remote: '212661234567@c.us', id: 'BBB' }, t: 2, type: 'chat' },
+      ],
+    }),
+    '212661234567@c.us',
+    { limit: 50 }
+  );
+  check(
+    'a key with no serialized form at all is rebuilt from its parts',
+    messages[0].id === 'false_212661234567@c.us_AAA' &&
+      messages[1].id === 'true_212661234567@c.us_BBB',
+    JSON.stringify(messages.map((m) => m.id))
+  );
+
+  // A re-keyed chat emits a run of notifications; a page made of nothing else
+  // used to abort the backfill, leaving a near-empty history for exactly the
+  // chats that most needed one.
+  messages = await fetchMessages(
+    fetchClient({
+      msgs: [rawMsg('newest', { t: 9, body: 'newest' })],
+      pages: [
+        [rawMsg('n1', { isNotification: true }), rawMsg('n2', { isNotification: true })],
+        [rawMsg('older', { t: 1, body: 'older' })],
+      ],
+    }),
+    '212661234567@c.us',
+    { limit: 50 }
+  );
+  check(
+    'a page of only notifications does not end the backfill',
+    messages.length === 2 && messages.some((m) => m.body === 'older'),
+    JSON.stringify(messages.map((m) => m.body))
+  );
+
   console.log('\n-- fetchMessages fallback --');
   messages = await fetchMessages(
     fetchClient({
@@ -208,6 +304,36 @@ async function main() {
     messages.length === 1 && messages[0].body === 'via getChatById',
     JSON.stringify(messages)
   );
+
+  console.log('\n-- serializeMessageId --');
+  check(
+    'a serialized key is used as-is',
+    serializeMessageId({ _serialized: 'true_212@c.us_ABC' }) === 'true_212@c.us_ABC'
+  );
+  check('a string id passes through', serializeMessageId('true_212@c.us_ABC') === 'true_212@c.us_ABC');
+  check(
+    'a DM key is rebuilt from its parts',
+    serializeMessageId({ fromMe: true, remote: '212661234567@c.us', id: 'ABC' }) ===
+      'true_212661234567@c.us_ABC',
+    serializeMessageId({ fromMe: true, remote: '212661234567@c.us', id: 'ABC' })
+  );
+  check(
+    'an incoming DM key rebuilds with false',
+    serializeMessageId({ fromMe: false, remote: '212661234567@c.us', id: 'ABC' }) ===
+      'false_212661234567@c.us_ABC'
+  );
+  check(
+    'a group key keeps its participant as a fourth part',
+    serializeMessageId({
+      fromMe: false,
+      remote: { _serialized: '12036@g.us' },
+      id: 'ABC',
+      participant: { _serialized: '212661234567@c.us' },
+    }) === 'false_12036@g.us_ABC_212661234567@c.us'
+  );
+  // Anything is better than a string that every message shares.
+  check('an unusable key is null, never "[object Object]"', serializeMessageId({}) === null);
+  check('a missing key is null', serializeMessageId(undefined) === null);
 
   console.log('\n-- mapMessage --');
   const mapped = mapMessage({

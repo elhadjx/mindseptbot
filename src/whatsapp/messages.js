@@ -42,6 +42,38 @@ function thumbnailOf(m, hasMedia) {
   return `data:image/jpeg;base64,${raw}`;
 }
 
+/**
+ * The message id the rest of the app keys on - `fromMe_remote_id` with the
+ * sender appended in a group.
+ *
+ * Normally the key arrives carrying its own `_serialized`, and we use it. But
+ * whatsapp-web.js's `getMessageModel()` rebuilds the key with `Object.assign`
+ * whenever `id.remote` is a Wid, and whatever `_serialized` was does not
+ * always survive that copy - it never crosses back out of the browser page.
+ *
+ * The old fallback here was `String(m.id)`, which turns a key object into
+ * "[object Object]" - the SAME id for every message in the chat. The panel
+ * unions the poll's messages into the open conversation by id, so a whole
+ * history collapsed into a single entry a few seconds after opening it, and
+ * media, which is fetched by id, 404'd for every bubble. Rebuild the id from
+ * its parts instead, and return null rather than a string that lies.
+ */
+function serializeMessageId(id) {
+  if (typeof id === 'string') return id || null;
+  if (!id || typeof id !== 'object') return null;
+  if (typeof id._serialized === 'string' && id._serialized) return id._serialized;
+
+  const asJid = (v) => (typeof v === 'object' ? v?._serialized || null : v || null);
+  const remote = asJid(id.remote);
+  if (!remote || !id.id) return null;
+
+  const parts = [id.fromMe ? 'true' : 'false', remote, String(id.id)];
+  // Group messages carry a fourth part; getMessageById accepts 3 or 4.
+  const participant = asJid(id.participant);
+  if (participant) parts.push(participant);
+  return parts.join('_');
+}
+
 /** Shape shared by every message we hand to the panel, live or historical. */
 function mapMessage(m) {
   const hasMedia =
@@ -54,7 +86,7 @@ function mapMessage(m) {
   const text = hasMedia ? (isLive ? m.body : m.caption) : m.body;
 
   return {
-    id: m.id?._serialized || String(m.id),
+    id: serializeMessageId(m.id),
     body: text || '',
     thumbnail: thumbnailOf(m, hasMedia),
     timestamp: m.timestamp ?? m.t ?? null,
@@ -188,7 +220,7 @@ async function fetchMessagesFast(client, chatId, { limit = 50 } = {}) {
       let msgs = chat.msgs.getModelsArray().filter(msgFilter);
 
       if (max > 0) {
-        // Bounded: a page of nothing but notifications comes back non-empty
+        // Page bound: a page of nothing but notifications comes back non-empty
         // yet adds no messages, so "until we have enough" alone can spin
         // forever - and a spinning evaluate wedges the whole WhatsApp page,
         // taking door commands down with it.
@@ -196,10 +228,14 @@ async function fetchMessagesFast(client, chatId, { limit = 50 } = {}) {
           const loaded = await window
             .require('WAWebChatLoadMessages')
             .loadEarlierMsgs({ chat });
+          // Running out of history is the real terminator.
           if (!loaded || !loaded.length) break;
+          // A page of pure notifications must be stepped over, not treated as
+          // the end: a re-keyed chat emits a run of them, so bailing out here
+          // returned a near-empty history for exactly the chats that most
+          // needed one. The page bound above is what guarantees we finish.
           const kept = loaded.filter(msgFilter);
-          if (!kept.length) break;
-          msgs = [...kept, ...msgs];
+          if (kept.length) msgs = [...kept, ...msgs];
         }
         if (msgs.length > max) {
           msgs.sort((a, b) => (a.t > b.t ? 1 : -1));
@@ -207,7 +243,26 @@ async function fetchMessagesFast(client, chatId, { limit = 50 } = {}) {
         }
       }
 
-      return msgs.map((m) => window.WWebJS.getMessageModel(m));
+      return msgs.map((m) => {
+        const model = window.WWebJS.getMessageModel(m);
+        // Put the message's own id back on it.
+        //
+        // getMessageModel copies the key with Object.assign when `remote` is a
+        // Wid, and the serialized form does not always come along for the
+        // ride. It is still here on the live key, so read it off that while we
+        // can - once this crosses out of the page it cannot be recovered, and
+        // every message arrives sharing one id.
+        //
+        // `String(key)` is a second source, but only when the key really does
+        // stringify to an id: writing "[object Object]" into _serialized would
+        // be worse than leaving it absent, because the mapper trusts it.
+        const candidates = [m.id?._serialized, m.id && String(m.id)];
+        const serialized = candidates.find(
+          (v) => typeof v === 'string' && v.includes('_') && v.includes('@')
+        );
+        if (serialized) model.id = { ...model.id, _serialized: serialized };
+        return model;
+      });
     },
     chatId,
     limit
@@ -437,6 +492,7 @@ async function getAvatarUrl(client, chatId) {
 }
 
 module.exports = {
+  serializeMessageId,
   mapMessage,
   chatIdFor,
   listChats,

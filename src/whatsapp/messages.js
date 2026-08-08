@@ -92,6 +92,12 @@ function mapMessage(m) {
     timestamp: m.timestamp ?? m.t ?? null,
     fromMe: Boolean(m.fromMe ?? m.id?.fromMe),
     author: typeof m.author === 'object' ? m.author?._serialized || null : m.author || null,
+    // The name this sender is saved under in the linked phone's address book,
+    // resolved in fetchMessagesFast. Only a fetched history carries it: a
+    // message arriving live is mapped synchronously, on the same path a door
+    // command travels, and no name is worth a contact lookup there. The next
+    // poll upgrades the bubble from the pushname below.
+    authorName: m.authorName || null,
     // The sender's own pushname, as WhatsApp attached it to this message. It
     // rides along for free, and it is the only name available for someone who
     // isn't in the address book - which is exactly who a notification most
@@ -248,8 +254,45 @@ async function fetchMessagesFast(client, chatId, { limit = 50 } = {}) {
         }
       }
 
+      // Who spoke, for a group. The Contact collection is already in the page,
+      // so this is a lookup rather than a round trip - and one cache across
+      // the whole page keeps a chatty participant to a single lookup.
+      //
+      // Preference order is WhatsApp's own: the name saved in the address
+      // book beats the name someone chose for themselves.
+      const getters = (() => {
+        try {
+          return window.require('WAWebContactGetters');
+        } catch {
+          return null;
+        }
+      })();
+      const names = new Map();
+      const authorNameOf = (author) => {
+        const id = typeof author === 'object' ? author?._serialized : author;
+        if (!id) return null;
+        if (names.has(id)) return names.get(id);
+
+        let name = null;
+        try {
+          const contact = window.require('WAWebCollections').Contact.get(id);
+          if (contact) {
+            name =
+              (getters?.getName ? getters.getName(contact) : contact.name) ||
+              (getters?.getShortName ? getters.getShortName(contact) : contact.shortName) ||
+              (getters?.getPushname ? getters.getPushname(contact) : contact.pushname) ||
+              null;
+          }
+        } catch {
+          // Naming a bubble is never worth losing the message it names.
+        }
+        names.set(id, name);
+        return name;
+      };
+
       return msgs.map((m) => {
         const model = window.WWebJS.getMessageModel(m);
+        model.authorName = authorNameOf(m.author ?? model.author);
         // Put the message's own id back on it.
         //
         // getMessageModel copies the key with Object.assign when `remote` is a
@@ -460,20 +503,31 @@ async function sendMedia(
 }
 
 /**
- * Profile picture for a chat, as a URL on WhatsApp's own CDN.
+ * Profile picture for a chat OR for one person, as a URL on WhatsApp's own
+ * CDN. Both are just a JID here, and the thumbnail bridge only wants
+ * something carrying an `id`.
  *
  * `client.getProfilePicUrl()` resolves the chat with getAsModel left on,
  * which is the network-bound full model build this file avoids everywhere
  * else - so ask for the raw chat instead.
+ *
+ * It also reaches the chat through `findOrCreateLatestChat`, and the "create"
+ * half of that is wrong for a group participant: naming the sender of a
+ * message would conjure an empty conversation with them in the inbox. So take
+ * the chat only if one already exists, and otherwise resolve a contact.
  */
 async function getAvatarUrlFast(client, chatId) {
   return client.pupPage.evaluate(async (id) => {
     try {
-      const chat = await window.WWebJS.getChat(id, { getAsModel: false });
-      if (!chat) return null;
+      const collections = window.require('WAWebCollections');
+      const wid = window.require('WAWebWidFactory').createWid(id);
+      const subject =
+        collections.Chat.get(wid) || collections.Contact.get(wid) || (await collections.Contact.find(wid));
+      if (!subject) return null;
+
       const pic = await window
         .require('WAWebContactProfilePicThumbBridge')
-        .requestProfilePicFromServer(chat);
+        .requestProfilePicFromServer(subject);
       return pic?.eurl || null;
     } catch (err) {
       // No picture set, or not visible to us under their privacy settings.

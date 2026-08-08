@@ -164,6 +164,9 @@ async function main() {
     msgs,
     getChatThrows = false,
     viaGetChatById,
+    // The address book, keyed by JID - what the page's Contact collection
+    // holds, and where a group message gets the name above it.
+    contacts = null,
     // Successive pages handed back by loadEarlierMsgs, oldest request first.
     pages = [],
     // Mimic getMessageModel dropping the key's _serialized, which is what it
@@ -186,6 +189,11 @@ async function main() {
             require: (mod) => {
               if (mod === 'WAWebChatLoadMessages') {
                 return { loadEarlierMsgs: async () => remaining.shift() || [] };
+              }
+              // Only offered when a test asks for it, so the no-address-book
+              // path - which every other test here takes - stays covered.
+              if (mod === 'WAWebCollections' && contacts) {
+                return { Contact: { get: (id) => contacts[id] || null } };
               }
               throw new Error(`unexpected module ${mod}`);
             },
@@ -285,6 +293,57 @@ async function main() {
     'a page of only notifications does not end the backfill',
     messages.length === 2 && messages.some((m) => m.body === 'older'),
     JSON.stringify(messages.map((m) => m.body))
+  );
+
+  // In a group the bubble is anonymous without this: the panel shows the name
+  // and picture of whoever spoke, and the name it prefers is the one the
+  // linked phone has them saved under.
+  console.log('\n-- group sender names --');
+  const groupMsg = (shortId, author, { t = 1, notifyName = null } = {}) => ({
+    ...rawMsg(shortId, { t, body: 'salut' }),
+    author: { _serialized: author },
+    notifyName,
+  });
+
+  messages = await fetchMessages(
+    fetchClient({
+      contacts: {
+        '212661234567@c.us': { name: 'Amina · voisine', pushname: 'Amina', shortName: 'Amina' },
+        '212700000000@c.us': { name: '', pushname: '', shortName: 'Youssef' },
+      },
+      msgs: [
+        groupMsg('a', '212661234567@c.us', { t: 1, notifyName: 'Amina' }),
+        groupMsg('b', '212700000000@c.us', { t: 2 }),
+        groupMsg('c', '99988877766655@lid', { t: 3, notifyName: 'Karim' }),
+      ],
+    }),
+    '120363000000000000@g.us',
+    { limit: 50 }
+  );
+  check(
+    'the saved name wins over the pushname',
+    messages[0].authorName === 'Amina · voisine',
+    messages[0].authorName
+  );
+  check('a contact with only a short name still gets one', messages[1].authorName === 'Youssef');
+  check(
+    'someone not in the address book has no saved name',
+    messages[2].authorName === null,
+    messages[2].authorName
+  );
+  check('  but keeps the pushname they chose', messages[2].notifyName === 'Karim');
+  check('the author JID rides along for the avatar', messages[0].author === '212661234567@c.us');
+
+  // The Contact collection is not something a message can be lost over.
+  messages = await fetchMessages(
+    fetchClient({ msgs: [groupMsg('a', '212661234567@c.us', { notifyName: 'Amina' })] }),
+    '120363000000000000@g.us',
+    { limit: 50 }
+  );
+  check(
+    'an unreachable address book costs the name, not the message',
+    messages.length === 1 && messages[0].authorName === null && messages[0].notifyName === 'Amina',
+    JSON.stringify(messages)
   );
 
   console.log('\n-- fetchMessages fallback --');

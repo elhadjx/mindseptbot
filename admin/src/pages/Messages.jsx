@@ -33,8 +33,50 @@ function previewText(last) {
 function initials(name) {
   const trimmed = String(name || '').trim();
   if (!trimmed) return '?';
-  const parts = trimmed.split(/\s+/).slice(0, 2);
-  return parts.map((p) => p[0]?.toUpperCase() || '').join('') || '?';
+  // Someone with no name saved is shown as their number, and the first
+  // characters of that are a "+" and a country code every neighbour in the
+  // group shares. The last two digits at least tell them apart.
+  if (!/\p{L}/u.test(trimmed)) {
+    const digits = trimmed.replace(/\D/g, '');
+    return digits ? digits.slice(-2) : '?';
+  }
+  // Skip the separators people decorate a contact name with - "Amina ·
+  // voisine" is AV, not A·.
+  const parts = trimmed
+    .split(/\s+/)
+    .filter((p) => /^[\p{L}\p{N}]/u.test(p))
+    .slice(0, 2);
+  return parts.map((p) => p[0].toUpperCase()).join('') || '?';
+}
+
+/**
+ * Who sent a group message: the name they are saved under, then the name they
+ * chose for themselves, then their number.
+ *
+ * Only a `c.us` JID holds a real phone number - the user part of a LID is an
+ * internal identifier, and dressing it up with a `+` would invent a number
+ * that nobody can dial.
+ */
+function senderName(message) {
+  if (message.authorName) return message.authorName;
+  if (message.notifyName) return message.notifyName;
+  const [user, server] = String(message.author || '').split('@');
+  if (!user) return 'Unknown';
+  return server === 'c.us' ? `+${user}` : user;
+}
+
+/*
+ * Hues for sender names, so two people talking at once are told apart at a
+ * glance. They are drawn from the earth palette's own neighbourhood - moss,
+ * terracotta, clay, olive - rather than being an arbitrary rainbow, and the
+ * lightness that makes them readable lives in the stylesheet, per theme.
+ */
+const SENDER_HUES = [128, 18, 200, 42, 320, 96, 172, 262];
+
+function senderHue(id) {
+  let hash = 0;
+  for (let i = 0; i < id.length; i += 1) hash = (hash * 31 + id.charCodeAt(i)) % 1024;
+  return SENDER_HUES[hash % SENDER_HUES.length];
 }
 
 function formatChatTime(ts) {
@@ -113,27 +155,43 @@ function formatSeconds(total) {
 }
 
 /**
+ * Ids we have already asked about and been told have no picture.
+ *
+ * A conversation renders the same sender over and over, and each of those is
+ * a separate <Avatar> with its own state - so without this, one participant
+ * with no photo means one failed request per run of their messages, for the
+ * whole scrollback. Module-level so it outlives the bubbles themselves.
+ */
+const avatarMisses = new Set();
+
+/**
  * Profile picture, with initials as the resting state rather than a fallback
  * bolted on: plenty of chats have no picture, or hide it, and a broken image
  * icon in a contact list looks like a bug.
+ *
+ * `chatId` is any JID - a chat, or one participant of a group.
  */
-function Avatar({ chatId, name }) {
+function Avatar({ chatId, name, small = false }) {
   const [failed, setFailed] = useState(false);
+  const size = small ? ' chat-item__avatar--sm' : '';
 
-  if (failed || !chatId) {
+  if (failed || !chatId || avatarMisses.has(chatId)) {
     return (
-      <span className="chat-item__avatar" aria-hidden="true">
+      <span className={`chat-item__avatar${size}`} aria-hidden="true">
         {initials(name)}
       </span>
     );
   }
   return (
     <img
-      className="chat-item__avatar chat-item__avatar--photo"
+      className={`chat-item__avatar chat-item__avatar--photo${size}`}
       src={api.chatAvatarUrl(chatId)}
       alt=""
       loading="lazy"
-      onError={() => setFailed(true)}
+      onError={() => {
+        avatarMisses.add(chatId);
+        setFailed(true);
+      }}
     />
   );
 }
@@ -215,73 +273,92 @@ function MessageContent({ message, mediaUrl, onMediaError }) {
   }
 }
 
-function MessageBubble({ message }) {
+/**
+ * One message.
+ *
+ * In a group an incoming message is wrapped in a row so it can carry its
+ * sender's picture beside it and their name above it - without that, a group
+ * reads as an anonymous stream of text. `showSender` marks the first message
+ * of a run from one person: repeating the name and photo on every line of
+ * somebody typing four sentences is noise, so the rest of the run is indented
+ * to stay in line and left unlabelled.
+ */
+function MessageBubble({ message, inGroup = false, showSender = false }) {
   // WhatsApp drops the bytes for old media, and the phone has to re-upload it
   // before it can be fetched again. A broken-image icon doesn't say that.
   const [mediaFailed, setMediaFailed] = useState(false);
   const mediaUrl = message.hasMedia ? api.chatMediaUrl(message.id) : null;
+  const labelled = inGroup && !message.fromMe;
+  const name = labelled ? senderName(message) : '';
 
   // An optimistic bubble has no server-side message to fetch bytes from yet,
   // so it shows the local file it was created from.
-  if (message.pending && message.hasMedia) {
-    return (
-      <div
-        className={`bubble ${message.fromMe ? 'bubble--out' : 'bubble--in'} ${
-          message.pending ? 'bubble--pending' : ''
-        }`}
-      >
-        <div className="bubble__media">
-          {message.thumbnail ? (
-            <img src={message.thumbnail} alt={message.body || 'Sending'} />
-          ) : (
-            <div className="bubble__text muted">
-              {message.filename || MEDIA_PREVIEW[message.type] || '📎 Attachment'}
-            </div>
-          )}
-          {message.body && <div className="bubble__caption">{message.body}</div>}
-        </div>
-        <div className="bubble__meta">
-          {formatClock(message.timestamp)}
-          <AckMark message={message} />
-        </div>
+  const content =
+    message.pending && message.hasMedia ? (
+      <div className="bubble__media">
+        {message.thumbnail ? (
+          <img src={message.thumbnail} alt={message.body || 'Sending'} />
+        ) : (
+          <div className="bubble__text muted">
+            {message.filename || MEDIA_PREVIEW[message.type] || '📎 Attachment'}
+          </div>
+        )}
+        {message.body && <div className="bubble__caption">{message.body}</div>}
       </div>
+    ) : mediaFailed ? (
+      // WhatsApp expires media the phone has to re-upload before it can be
+      // fetched again. The preview that came with the message still shows
+      // what it was, which beats a shrug.
+      <div className="bubble__media">
+        {message.thumbnail ? (
+          <>
+            <img src={message.thumbnail} alt={message.body || 'Preview'} />
+            <div className="bubble__caption muted">Preview only — full size unavailable.</div>
+          </>
+        ) : (
+          <div className="bubble__text muted">
+            {MEDIA_PREVIEW[message.type] || '📎 Attachment'} — not available.
+          </div>
+        )}
+        {message.body && <div className="bubble__caption">{message.body}</div>}
+      </div>
+    ) : (
+      <MessageContent
+        message={message}
+        mediaUrl={mediaUrl}
+        onMediaError={() => setMediaFailed(true)}
+      />
     );
-  }
 
-  return (
+  const bubble = (
     <div
-        className={`bubble ${message.fromMe ? 'bubble--out' : 'bubble--in'} ${
-          message.pending ? 'bubble--pending' : ''
-        }`}
-      >
-      {mediaFailed ? (
-        // WhatsApp expires media the phone has to re-upload before it can be
-        // fetched again. The preview that came with the message still shows
-        // what it was, which beats a shrug.
-        <div className="bubble__media">
-          {message.thumbnail ? (
-            <>
-              <img src={message.thumbnail} alt={message.body || 'Preview'} />
-              <div className="bubble__caption muted">Preview only — full size unavailable.</div>
-            </>
-          ) : (
-            <div className="bubble__text muted">
-              {MEDIA_PREVIEW[message.type] || '📎 Attachment'} — not available.
-            </div>
-          )}
-          {message.body && <div className="bubble__caption">{message.body}</div>}
+      className={`bubble ${message.fromMe ? 'bubble--out' : 'bubble--in'} ${
+        message.pending ? 'bubble--pending' : ''
+      }`}
+    >
+      {labelled && showSender && (
+        <div className="bubble__sender" style={{ '--sender-hue': senderHue(message.author || name) }}>
+          {name}
         </div>
-      ) : (
-        <MessageContent
-          message={message}
-          mediaUrl={mediaUrl}
-          onMediaError={() => setMediaFailed(true)}
-        />
       )}
+      {content}
       <div className="bubble__meta">
         {formatClock(message.timestamp)}
         {message.fromMe && <AckMark message={message} />}
       </div>
+    </div>
+  );
+
+  if (!labelled) return bubble;
+
+  return (
+    <div className="bubble-row">
+      {showSender ? (
+        <Avatar chatId={message.author} name={name} small />
+      ) : (
+        <span className="bubble-row__gutter" aria-hidden="true" />
+      )}
+      {bubble}
     </div>
   );
 }
@@ -752,9 +829,21 @@ export default function Messages({ waReady, initialChatId = null }) {
                 <div className="conversation__scroll" ref={scrollRef} onScroll={onConversationScroll}>
                   {loadingMessages && messages.length === 0 && <Empty>Loading…</Empty>}
                   {!loadingMessages && messages.length === 0 && <Empty>No messages yet.</Empty>}
-                  {messages.map((m) => (
-                    <MessageBubble key={m.id} message={m} />
-                  ))}
+                  {messages.map((m, i) => {
+                    // The first message of a run from one person is the one
+                    // that carries their name and picture.
+                    const prev = messages[i - 1];
+                    const startsRun =
+                      !prev || prev.fromMe !== m.fromMe || (prev.author || '') !== (m.author || '');
+                    return (
+                      <MessageBubble
+                        key={m.id}
+                        message={m}
+                        inGroup={Boolean(selectedChat.isGroup)}
+                        showSender={startsRun}
+                      />
+                    );
+                  })}
                 </div>
 
                 <form className="composer" onSubmit={sendText}>

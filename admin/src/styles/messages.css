@@ -118,6 +118,13 @@
   background: var(--clr-surface-sunken);
 }
 
+/* Beside a group message, where it identifies rather than headlines. */
+.chat-item__avatar--sm {
+  width: 1.75rem;
+  height: 1.75rem;
+  font-size: var(--fs-xs);
+}
+
 .chat-item__body {
   flex: 1;
   min-width: 0;
@@ -236,6 +243,39 @@
 .bubble--out {
   align-self: flex-end;
   background: var(--clr-granted-wash);
+}
+
+/* An incoming group message and the picture of whoever sent it. The row spans
+   the scroller so the bubble's percentage max-width still resolves against the
+   full conversation width, exactly as it does for a one-to-one chat. */
+.bubble-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  width: 100%;
+  min-width: 0;
+}
+
+/* Keeps the rest of a run in line with the message that carries the photo. */
+.bubble-row__gutter {
+  flex: none;
+  width: 1.75rem;
+}
+
+.bubble__sender {
+  margin-bottom: var(--sp-1);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* --sender-hue is set per sender in Messages.jsx; the lightness that keeps
+     it legible against the bubble belongs to the theme, not to the sender. */
+  color: hsl(var(--sender-hue, 128) 34% 34%);
+}
+
+:root[data-theme='dark'] .bubble__sender {
+  color: hsl(var(--sender-hue, 128) 38% 68%);
 }
 
 .bubble__text {

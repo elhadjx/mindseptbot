@@ -31,10 +31,13 @@ router.get('/chats', requireReady, async (req, res) => {
   }
 });
 
-// Profile pictures, resolved one chat at a time as the list scrolls rather
+// Profile pictures, resolved one id at a time as the list scrolls rather
 // than as part of the chat listing - each lookup is a round trip to
 // WhatsApp's servers, and 50 of them would make opening the tab crawl.
 // Resolved URLs are cached because the panel re-asks on every mount.
+//
+// `:id` is any JID: a chat for the list and the conversation header, or a
+// single participant for the sender beside a group message.
 const AVATAR_TTL_MS = 10 * 60 * 1000;
 const avatarCache = new Map(); // chatId -> { at, url }
 
@@ -50,8 +53,15 @@ router.get('/chats/:id/avatar', requireReady, async (req, res) => {
     }
 
     // No picture, or their privacy settings hide it - the panel falls back to
-    // initials, so this is an ordinary outcome rather than an error.
-    if (!url) return res.status(404).json({ ok: false, error: 'no_avatar' });
+    // initials, so this is an ordinary outcome rather than an error. Cached
+    // like a hit: a group message list asks about the same picture-less
+    // sender once per run of messages, and every miss is a page round trip.
+    if (!url) {
+      return res
+        .status(404)
+        .set('Cache-Control', 'private, max-age=600')
+        .json({ ok: false, error: 'no_avatar' });
+    }
 
     // The eurl points at WhatsApp's CDN and needs no credentials; redirecting
     // keeps the image bytes off this server entirely.

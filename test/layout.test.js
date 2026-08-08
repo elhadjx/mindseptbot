@@ -71,6 +71,18 @@ const html = `<!doctype html><html><head><style>${css}</style></head><body>
           <div class="bubble bubble--out" id="outgoing"><div class="bubble__text">a message I sent</div><div class="bubble__meta">12:02</div></div>
           <div class="bubble bubble--in"><a class="bubble__document"><span>📎</span><span>a-really-long-document-filename-that-goes-on-and-on-forever.pdf</span></a><div class="bubble__meta">12:03</div></div>
           <div class="bubble bubble--in"><div class="bubble__media"><audio controls class="bubble__audio"></audio></div><div class="bubble__meta">12:04</div></div>
+          <div class="bubble-row">
+            <span class="chat-item__avatar chat-item__avatar--sm">AV</span>
+            <div class="bubble bubble--in" id="sender">
+              <div class="bubble__sender">Someone with a rather long name of their own</div>
+              <a class="bubble__media"><img id="wide-group" src="${WIDE_IMAGE}"></a>
+              <div class="bubble__meta">12:05</div>
+            </div>
+          </div>
+          <div class="bubble-row">
+            <span class="bubble-row__gutter"></span>
+            <div class="bubble bubble--in" id="sender-run"><div class="bubble__text">still me</div><div class="bubble__meta">12:06</div></div>
+          </div>
         </div>
         <form class="composer" id="composer">
           <button type="button" class="btn btn--ghost composer__icon">📎</button>
@@ -144,6 +156,9 @@ async function main() {
         mic: box('#mic'),
         outgoing: box('#outgoing'),
         image: box('#wide'),
+        groupImage: box('#wide-group'),
+        sender: box('#sender'),
+        senderRun: box('#sender-run'),
         scrollerOverflowX: scroller.scrollWidth - scroller.clientWidth,
       };
     });
@@ -178,6 +193,25 @@ async function main() {
       m.mic.right <= m.shell.right + SLACK,
       `mic ${m.mic.right} vs shell ${m.shell.right}`
     );
+    // A group message sits in a row beside its sender's picture, and the
+    // bubble's max-width is a percentage - so it is worth proving that width
+    // still resolves against the conversation rather than against the row.
+    check(
+      'a group bubble is contained',
+      m.sender.right <= m.shell.right + SLACK,
+      `${m.sender.right} vs shell ${m.shell.right}`
+    );
+    check(
+      '  and a photo inside one is too',
+      m.groupImage.right <= m.shell.right + SLACK,
+      `image ${m.groupImage.right} vs shell ${m.shell.right}`
+    );
+    check(
+      'the rest of a run lines up under the first message',
+      Math.abs(m.senderRun.left - m.sender.left) <= SLACK,
+      `${m.senderRun.left} vs ${m.sender.left}`
+    );
+
     // Outgoing bubbles are right-aligned, so they are the first thing lost
     // when the pane overhangs its container.
     check(

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
-import { Card, Empty, Field, Flash, Toggle, useFlash } from '../components/ui';
+import { Card, DoorStatus, Empty, Field, Flash, Toggle, formatTime, useFlash } from '../components/ui';
 import {
   currentSubscription,
   disablePush,
@@ -9,7 +9,15 @@ import {
   pushSupported,
 } from '../lib/push';
 
-export default function Settings({ settings, doors, onSaved, waReady }) {
+export default function Settings({
+  settings,
+  doors,
+  doorsCheckedAt,
+  offlineDoors,
+  onRefreshDoors,
+  onSaved,
+  waReady,
+}) {
   const [draft, setDraft] = useState(settings);
   const [groups, setGroups] = useState(null);
   const [loadingGroups, setLoadingGroups] = useState(false);
@@ -133,6 +141,27 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
   }
 
   const doorsEnabled = draft.doorsEnabled || {};
+
+  // Reachability is probed on demand, not streamed, so the reading the panel
+  // holds was taken whenever it last asked - at sign-in, for a tab left open
+  // all day. Ask again on arriving here, and leave the admin a button for the
+  // rest. No interval: every probe is a Tuya call and they are rate limited.
+  const [checkingDoors, setCheckingDoors] = useState(false);
+  useEffect(() => {
+    onRefreshDoors?.().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function checkDoors() {
+    setCheckingDoors(true);
+    try {
+      await onRefreshDoors();
+    } catch (err) {
+      setFlash({ ok: false, message: `Could not check the doors: ${err.message}` });
+    } finally {
+      setCheckingDoors(false);
+    }
+  }
 
   return (
     <form className="stack" onSubmit={save}>
@@ -458,14 +487,30 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
         </div>
       </Card>
 
-      <Card title="Doors">
+      <Card
+        title="Doors"
+        hint="Whether the relay is answering Tuya. The reading is a heartbeat and can lag a minute or two behind the real thing, so an open is still attempted on a door showing offline."
+        actions={
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={checkDoors}
+            disabled={checkingDoors}
+          >
+            {checkingDoors ? 'Checking…' : 'Check now'}
+          </button>
+        }
+      >
         <div className="stack">
           {doors.map((door) => (
             <div className="spread" key={door.key}>
               <div>
                 <div style={{ fontWeight: 600 }}>{door.label}</div>
-                <div className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
-                  {door.configured ? `${door.key} · ${describeReach(door.online)}` : 'not configured in .env'}
+                <div className="row" style={{ gap: 'var(--sp-3)' }}>
+                  <DoorStatus door={door} offline={offlineDoors?.has(door.key)} />
+                  <span className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
+                    {door.configured ? door.key : 'not configured in .env'}
+                  </span>
                 </div>
               </div>
               <Toggle
@@ -476,6 +521,12 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
               />
             </div>
           ))}
+
+          {doorsCheckedAt && (
+            <div className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
+              Last checked at {formatTime(doorsCheckedAt)}.
+            </div>
+          )}
         </div>
       </Card>
 
@@ -521,13 +572,6 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
       <AdminPasswordCard />
     </form>
   );
-}
-
-/** Tuya's reachability flag, in words. `null` means the probe itself failed. */
-function describeReach(online) {
-  if (online === true) return 'online';
-  if (online === false) return 'not responding';
-  return 'reachability unknown';
 }
 
 /**

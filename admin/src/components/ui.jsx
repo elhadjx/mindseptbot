@@ -57,6 +57,42 @@ export function DecisionChip({ decision }) {
   );
 }
 
+const DOOR_STATUS = {
+  online: { seed: 'seed--granted', label: 'Online' },
+  offline: { seed: 'seed--denied', label: 'Not responding' },
+  unknown: { seed: 'seed--pending', label: 'Status unknown' },
+  unconfigured: { seed: '', label: 'Not configured' },
+};
+
+/**
+ * Two things claim to know whether a door is up, and they can disagree.
+ *
+ * `door.online` is Tuya's heartbeat flag, read when the panel last asked. It
+ * lags reality by minutes in both directions (see door-service.js), so it is
+ * the weaker witness. `offline` is the live latch from /api/doors/stream - a
+ * door that actually refused to open. A confirmed failure wins over a
+ * heartbeat that may simply not have arrived yet, so it is checked first.
+ */
+export function doorState(door, offline = false) {
+  if (!door.configured) return 'unconfigured';
+  if (offline || door.online === false) return 'offline';
+  if (door.online === true) return 'online';
+  // null: the probe itself failed. Not the same as offline, and never shown as
+  // one - a hiccup talking to Tuya would otherwise read as a dead door.
+  return 'unknown';
+}
+
+/** Seed dot + word for a door's reachability. */
+export function DoorStatus({ door, offline = false }) {
+  const { seed, label } = DOOR_STATUS[doorState(door, offline)];
+  return (
+    <span className="row" style={{ gap: 'var(--sp-2)', fontSize: 'var(--fs-xs)' }}>
+      <span className={`seed ${seed}`} />
+      <span className="muted">{label}</span>
+    </span>
+  );
+}
+
 /** Transient success/error line that clears itself. */
 export function useFlash(timeout = 4000) {
   const [flash, setFlash] = useState(null);
@@ -85,4 +121,10 @@ export function formatDateTime(value) {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+/** Clock time alone - for something that happened within this sitting. */
+export function formatTime(value) {
+  if (!value) return '—';
+  return new Date(value).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }

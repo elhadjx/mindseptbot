@@ -22,7 +22,10 @@ router.get('/', async (req, res) => {
       online: door.configured ? await checkDoorOnline(door.key) : null,
     }))
   );
-  res.json({ ok: true, doors });
+  // When the probe ran, not when the panel rendered. The panel holds this
+  // reading until it asks again, so it needs to say how old the answer is
+  // rather than let a green dot from an hour ago pass for the present.
+  res.json({ ok: true, doors, checkedAt: new Date().toISOString() });
 });
 
 // Live door health for the panel banner. Deliberately its own stream: the

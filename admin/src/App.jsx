@@ -90,6 +90,7 @@ export default function App() {
   const [waState, setWaState] = useState({ status: 'starting' });
   const [settings, setSettings] = useState(null);
   const [doors, setDoors] = useState([]);
+  const [doorsCheckedAt, setDoorsCheckedAt] = useState(null);
   const [offlineDoors, setOfflineDoors] = useState(new Map()); // key -> label
   const [theme, toggleTheme] = useTheme();
 
@@ -125,15 +126,24 @@ export default function App() {
     };
   }, []);
 
+  // Each door's reachability is probed against Tuya on this call, so it is a
+  // reading taken at a moment rather than a subscription. Kept separate from
+  // the settings load so a page can ask for a fresh one on its own - the
+  // answer goes stale the second after it arrives.
+  const refreshDoors = useCallback(async () => {
+    const { doors: d, checkedAt } = await api.doors();
+    setDoors(d);
+    setDoorsCheckedAt(checkedAt);
+  }, []);
+
   const loadContext = useCallback(async () => {
     try {
-      const [{ settings: s }, { doors: d }] = await Promise.all([api.settings(), api.doors()]);
+      const [{ settings: s }] = await Promise.all([api.settings(), refreshDoors()]);
       setSettings(s);
-      setDoors(d);
     } catch (err) {
       if (err.status === 401) setAuthed(false);
     }
-  }, []);
+  }, [refreshDoors]);
 
   useEffect(() => {
     if (authed) loadContext();
@@ -175,6 +185,13 @@ export default function App() {
           else next.delete(door);
           return next;
         });
+        // An "online" frame means the door physically opened, which outranks
+        // any probe we are still holding. Without this, a door that was
+        // offline when the panel loaded keeps its red dot after it recovers,
+        // because the stored reading only changes when someone re-probes.
+        if (type === 'online') {
+          setDoors((current) => current.map((d) => (d.key === door ? { ...d, online: true } : d)));
+        }
       } catch {
         // Ignore malformed frames rather than tearing down the stream.
       }
@@ -290,7 +307,9 @@ export default function App() {
           </div>
         )}
 
-        {page === 'connection' && <Connection state={waState} doors={doors} />}
+        {page === 'connection' && (
+          <Connection state={waState} doors={doors} offlineDoors={offlineDoors} />
+        )}
         {page === 'members' && <Members settings={settings} />}
         {page === 'contacts' && <Contacts waReady={waState.status === 'ready'} />}
         {page === 'messages' && (
@@ -301,6 +320,9 @@ export default function App() {
           <Settings
             settings={settings}
             doors={doors}
+            doorsCheckedAt={doorsCheckedAt}
+            offlineDoors={offlineDoors}
+            onRefreshDoors={refreshDoors}
             waReady={waState.status === 'ready'}
             onSaved={(s) => setSettings(s)}
           />

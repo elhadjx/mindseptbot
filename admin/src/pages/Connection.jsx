@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
-import { Card, Flash, useFlash, formatDateTime } from '../components/ui';
+import { Card, DoorStatus, Flash, useFlash, formatDateTime } from '../components/ui';
 
 const STATUS_COPY = {
   starting: { label: 'Starting up', seed: 'pending', hint: 'Booting the WhatsApp client…' },
@@ -11,7 +11,7 @@ const STATUS_COPY = {
   auth_failure: { label: 'Auth failed', seed: 'denied', hint: 'Re-link the number below.' },
 };
 
-export default function Connection({ state, doors }) {
+export default function Connection({ state, doors, offlineDoors }) {
   const [flash, setFlash] = useFlash();
   const [busyDoor, setBusyDoor] = useState(null);
   const [unlinking, setUnlinking] = useState(false);
@@ -146,16 +146,20 @@ export default function Connection({ state, doors }) {
       </Card>
 
       <Card title="Open a door" hint="Manual override. Logged the same as a WhatsApp command.">
-        <div className="row">
+        {/* The status sits under its own button rather than in a banner: the
+            useful moment for it is right before deciding to press. */}
+        <div className="row" style={{ alignItems: 'flex-start' }}>
           {doors.map((door) => (
-            <button
-              key={door.key}
-              className="btn"
-              disabled={!door.configured || !door.enabled || busyDoor === door.key}
-              onClick={() => openDoor(door.key)}
-            >
-              {busyDoor === door.key ? 'Opening…' : door.label}
-            </button>
+            <div className="stack" key={door.key} style={{ gap: 'var(--sp-2)' }}>
+              <button
+                className="btn"
+                disabled={!door.configured || !door.enabled || busyDoor === door.key}
+                onClick={() => openDoor(door.key)}
+              >
+                {busyDoor === door.key ? 'Opening…' : door.label}
+              </button>
+              <DoorStatus door={door} offline={offlineDoors?.has(door.key)} />
+            </div>
           ))}
           {doors.length === 0 && <span className="muted">No doors configured.</span>}
         </div>

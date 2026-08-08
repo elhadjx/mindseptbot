@@ -7,6 +7,7 @@ const { backfillPhones } = require('./whatsapp/phone');
 const { createApp } = require('./http/app');
 const { startWhatsApp, stopWhatsApp, getClient } = require('./whatsapp/client');
 const { handleMessage } = require('./whatsapp/handlers');
+const { startMessageAlerts } = require('./notify/message-alert');
 
 // RemoteAuth runs its periodic backup as `setInterval(async () => ...)` with no
 // catch of its own, so a single failed backup becomes an unhandled rejection -
@@ -42,6 +43,10 @@ async function main() {
   const server = app.listen(config.port, () => {
     console.log(`Mindsept door access listening on http://localhost:${config.port}`);
   });
+
+  // Subscribes to the message bus, so it has to be listening before the
+  // WhatsApp client starts publishing to it.
+  startMessageAlerts();
 
   startWhatsApp((msg) => handleMessage(getClient(), msg)).catch((err) => {
     console.error('[wa] failed to start:', err);

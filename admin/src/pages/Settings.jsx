@@ -496,6 +496,26 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
         </Field>
       </Card>
 
+      <Card
+        title="Message notifications"
+        hint="Incoming WhatsApp messages, pushed to every device that has alerts enabled below. Door alerts are sent whatever this is set to."
+      >
+        <div className="spread">
+          <div>
+            <div style={{ fontWeight: 600 }}>Notify on new messages</div>
+            <div className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
+              One notification per conversation — a run of messages arriving together is grouped
+              into one. The message text is shown, so it appears on the lock screen.
+            </div>
+          </div>
+          <Toggle
+            checked={draft.messageAlerts !== false}
+            label="Notify on new WhatsApp messages"
+            onChange={(v) => set('messageAlerts', v)}
+          />
+        </div>
+      </Card>
+
       <PushAlertsCard />
 
       <AdminPasswordCard />

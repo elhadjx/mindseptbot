@@ -33,10 +33,15 @@ function publicKey() {
  * dead" answer - the user cleared site data, or uninstalled the PWA. Those rows
  * are deleted rather than retried, otherwise every future alert pays for them.
  *
+ * @param {object} payload            what the service worker renders
+ * @param {object} [options]
+ * @param {number} [options.ttl]      seconds the push service may hold it for
+ * @param {string} [options.urgency]  'high' wakes a dozing phone; 'normal' is
+ *   for anything that can wait for the next time it looks at the screen
  * @returns {Promise<number>} how many browsers actually accepted the push. Zero
  *   is the caller's cue to fall back to another channel.
  */
-async function sendPush(payload) {
+async function sendPush(payload, { ttl = 3600, urgency = 'high' } = {}) {
   if (!configured) return 0;
 
   const subscriptions = await PushSubscription.find().lean();
@@ -46,9 +51,10 @@ async function sendPush(payload) {
   const results = await Promise.allSettled(
     subscriptions.map((sub) =>
       webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, body, {
-        // Alerts are only worth delivering while they're still true.
-        TTL: 3600,
-        urgency: 'high',
+        // Alerts are only worth delivering while they're still true - the
+        // default suits a door outage; a chat message goes stale far sooner.
+        TTL: ttl,
+        urgency,
       })
     )
   );

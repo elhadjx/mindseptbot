@@ -12,7 +12,7 @@
     "dev:admin": "npm --prefix admin run dev",
     "keys:vapid": "node -e \"const k=require('web-push').generateVAPIDKeys();console.log('VAPID_PUBLIC_KEY='+k.publicKey);console.log('VAPID_PRIVATE_KEY='+k.privateKey)\"",
     "test:layout": "node test/layout.test.js",
-    "test": "node test/replies.test.js && node test/phone.test.js && node test/passwords.test.js && node test/groups.test.js && node test/contacts.test.js && node test/messages.test.js && node test/range.test.js && node test/session-store.test.js && node test/doors.test.js && node test/handler.test.js"
+    "test": "node test/replies.test.js && node test/phone.test.js && node test/passwords.test.js && node test/groups.test.js && node test/contacts.test.js && node test/messages.test.js && node test/range.test.js && node test/session-store.test.js && node test/doors.test.js && node test/handler.test.js && node test/message-alert.test.js"
   },
   "dependencies": {
     "cookie-parser": "^1.4.7",

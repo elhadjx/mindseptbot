@@ -46,6 +46,24 @@ const STATUS_LABEL = {
   auth_failure: 'WhatsApp sign-in failed',
 };
 
+const PAGE_KEYS = new Set(PAGES.map((p) => p.key));
+
+/**
+ * The panel's whole router: "#messages/<chatId>" - a page, optionally with the
+ * one thing that page can be pointed at.
+ *
+ * It exists for the notifications. A push that opens the panel on whatever tab
+ * it was last left on, when it was announcing a specific conversation, wastes
+ * the tap.
+ */
+function parseHash(hash) {
+  const [page, chatId] = String(hash || '')
+    .replace(/^#\/?/, '')
+    .split('/');
+  if (!PAGE_KEYS.has(page)) return { page: null, chatId: null };
+  return { page, chatId: chatId ? decodeURIComponent(chatId) : null };
+}
+
 function useTheme() {
   const [theme, setTheme] = useState(() => localStorage.getItem('mindsept-theme') || 'light');
   useEffect(() => {
@@ -57,7 +75,17 @@ function useTheme() {
 
 export default function App() {
   const [authed, setAuthed] = useState(null); // null = still checking
-  const [page, setPage] = useState('connection');
+  const [route, setRoute] = useState(() => {
+    const parsed = parseHash(window.location.hash);
+    return { page: parsed.page || 'connection', chatId: parsed.chatId };
+  });
+  const { page, chatId: routeChatId } = route;
+  const setPage = useCallback((key) => {
+    // Writing the hash is enough - the listener below is what moves the page,
+    // so a tap and a notification take exactly the same path.
+    window.location.hash = key;
+    setRoute({ page: key, chatId: null });
+  }, []);
   const [waState, setWaState] = useState({ status: 'starting' });
   const [settings, setSettings] = useState(null);
   const [doors, setDoors] = useState([]);
@@ -69,6 +97,31 @@ export default function App() {
       .session()
       .then(({ authenticated }) => setAuthed(authenticated))
       .catch(() => setAuthed(false));
+  }, []);
+
+  // Back/forward, and any notification tap that lands on an already-open panel.
+  useEffect(() => {
+    const applyHash = () => {
+      const parsed = parseHash(window.location.hash);
+      if (parsed.page) setRoute({ page: parsed.page, chatId: parsed.chatId });
+    };
+    window.addEventListener('hashchange', applyHash);
+
+    // A tapped notification reaches an open panel as a message from the
+    // service worker: focus() alone would leave it on whatever tab it was on.
+    const onWorkerMessage = (event) => {
+      if (event.data?.type !== 'navigate' || !event.data.url) return;
+      const hash = String(event.data.url).split('#')[1];
+      if (!hash) return;
+      window.location.hash = hash;
+      applyHash();
+    };
+    navigator.serviceWorker?.addEventListener('message', onWorkerMessage);
+
+    return () => {
+      window.removeEventListener('hashchange', applyHash);
+      navigator.serviceWorker?.removeEventListener('message', onWorkerMessage);
+    };
   }, []);
 
   const loadContext = useCallback(async () => {
@@ -232,7 +285,9 @@ export default function App() {
         {page === 'connection' && <Connection state={waState} doors={doors} />}
         {page === 'members' && <Members settings={settings} />}
         {page === 'contacts' && <Contacts waReady={waState.status === 'ready'} />}
-        {page === 'messages' && <Messages waReady={waState.status === 'ready'} />}
+        {page === 'messages' && (
+          <Messages waReady={waState.status === 'ready'} initialChatId={routeChatId} />
+        )}
         {page === 'activity' && <Activity />}
         {page === 'settings' && (
           <Settings

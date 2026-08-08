@@ -30,6 +30,7 @@ const EDITABLE = [
   'relayPulseMs',
   'defaultCountryCode',
   'adminAlertPhone',
+  'messageAlerts',
 ];
 
 router.get('/', async (req, res) => {

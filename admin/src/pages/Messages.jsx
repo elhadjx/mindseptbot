@@ -338,7 +338,7 @@ function ChatList({ chats, loading, selectedId, query, onQuery, onSelect, onRefr
   );
 }
 
-export default function Messages({ waReady }) {
+export default function Messages({ waReady, initialChatId = null }) {
   const [chats, setChats] = useState(null);
   const [loadingChats, setLoadingChats] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
@@ -412,6 +412,23 @@ export default function Messages({ waReady }) {
     setOpenedChat(null);
     setMessages([]);
   }
+
+  /**
+   * Open the chat a message notification pointed at.
+   *
+   * It waits for the chat list, which is where the name in the conversation
+   * header comes from. Each id is honoured once: opening it again every time
+   * the list refreshes would fight anyone who tapped Back afterwards.
+   */
+  const openedFromLinkRef = useRef(null);
+  useEffect(() => {
+    if (!waReady || !initialChatId || !chats) return;
+    if (openedFromLinkRef.current === initialChatId) return;
+    openedFromLinkRef.current = initialChatId;
+    const chat = chats.find((c) => c.id === initialChatId);
+    if (chat) openChat(chat);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waReady, initialChatId, chats]);
 
   /**
    * Refresh on a timer as well as over the stream.

@@ -91,6 +91,12 @@ const settingsSchema = new mongoose.Schema(
     // Where to send "the door is offline" when no browser has push enabled.
     // Empty means no fallback - the panel banner is then the only alert.
     adminAlertPhone: { type: String, default: '', trim: true },
+
+    // Whether an incoming WhatsApp message also buzzes the phones that have
+    // opted into browser alerts. Separate from the door alerts on purpose:
+    // these are chatter, those are an emergency, and someone who wants the
+    // second rarely wants both.
+    messageAlerts: { type: Boolean, default: true },
   },
   { timestamps: true, versionKey: false, _id: false }
 );

@@ -75,6 +75,41 @@ and refuses it there rather than leaving it to each caller: test mode sends no
 command, so it is no evidence the door is back, and one caller forgetting that
 would silently bury a live outage.
 
+## Message notifications
+
+The same push channel also carries incoming WhatsApp messages, from
+`src/notify/message-alert.js`. It listens to the `wa:message` bus event — the one
+that already feeds the Messages tab's live stream — so it touches neither the
+WhatsApp client nor the command pipeline. Settings → *Message notifications*
+(`messageAlerts`, default on) turns it off; door alerts are unaffected by it.
+
+Most of that module is about what **not** to send, because a notifier that cries
+wolf gets switched off within a day:
+
+- **Our own outgoing mail is skipped.** `MESSAGE_CREATE` puts it on the bus too,
+  so the panel can show what was sent from the phone.
+- **Only real conversations.** `c.us`, `lid`, `g.us` — never `status@broadcast`,
+  broadcast lists or channels, none of which the panel can even open.
+- **Nothing older than 60s.** Same reason `handlers.js` has a freshness guard: a
+  reconnect replays a backlog, and without this every restart would empty
+  yesterday's inbox onto the lock screen.
+- **A burst is one notification.** The first message opens a 5s window; when it
+  closes, one push goes out carrying the *latest* message ("3 nouveaux messages ·
+  …"). Five short lines typed in a row buzz once, not five times.
+- **One line per chat in the shade**, via a `chat:<chatId>` tag, so a busy
+  conversation replaces itself instead of stacking.
+
+Unlike a door outage, these are sent at normal urgency with a 10-minute TTL and
+`requireInteraction: false` — a message is not something to acknowledge before it
+will leave the screen, and one arriving an hour late is noise. There is **no
+WhatsApp fallback**: DMing the admin's own number about incoming messages would
+be a loop.
+
+Tapping one opens the conversation. `payload.url` is `#messages/<chatId>`, which
+is also the panel's entire router (`parseHash` in `App.jsx`) — a panel that is
+already open is reached by a `postMessage` from the service worker, since
+`focus()` alone would leave it on whatever tab it was last on.
+
 ## Installing the panel
 
 The panel is a PWA, installed to the home screen on the phones that should

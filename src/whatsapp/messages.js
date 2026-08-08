@@ -92,6 +92,11 @@ function mapMessage(m) {
     timestamp: m.timestamp ?? m.t ?? null,
     fromMe: Boolean(m.fromMe ?? m.id?.fromMe),
     author: typeof m.author === 'object' ? m.author?._serialized || null : m.author || null,
+    // The sender's own pushname, as WhatsApp attached it to this message. It
+    // rides along for free, and it is the only name available for someone who
+    // isn't in the address book - which is exactly who a notification most
+    // needs to name.
+    notifyName: m.notifyName || m._data?.notifyName || null,
     type: m.type,
     hasMedia,
     // Lets the panel label a document with its real filename rather than the
@@ -491,6 +496,27 @@ async function getAvatarUrl(client, chatId) {
   }
 }
 
+/**
+ * The display name of one chat - the contact's name, or the group's subject.
+ *
+ * Same `getAsModel: false` route as the avatar lookup above, for the same
+ * reason: naming a chat is not worth a groupMetadata round trip. Returns null
+ * rather than throwing when the chat is unknown or the page is mid-reload, so
+ * a caller can fall back to whatever name it already has.
+ */
+async function getChatTitle(client, chatId) {
+  try {
+    return await client.pupPage.evaluate(async (id) => {
+      const chat = await window.WWebJS.getChat(id, { getAsModel: false });
+      if (!chat) return null;
+      return chat.formattedTitle || chat.name || null;
+    }, chatId);
+  } catch (err) {
+    console.warn(`[wa] could not read the title of ${chatId}: ${err.message}`);
+    return null;
+  }
+}
+
 module.exports = {
   serializeMessageId,
   mapMessage,
@@ -508,4 +534,5 @@ module.exports = {
   downloadMessageMediaViaMessage,
   sendMedia,
   getAvatarUrl,
+  getChatTitle,
 };

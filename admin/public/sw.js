@@ -27,11 +27,15 @@ self.addEventListener('push', (event) => {
       body: payload.body || '',
       icon: '/logo.png',
       badge: '/logo.png',
-      // Same tag replaces an earlier notice for the same door instead of
-      // stacking, so a lingering outage stays one line in the shade.
+      // Same tag replaces an earlier notice for the same door - or the same
+      // conversation - instead of stacking, so neither a lingering outage nor
+      // a busy chat is more than one line in the shade.
       tag: payload.tag || 'mindsept',
       renotify: true,
-      requireInteraction: true,
+      // A door outage stays on screen until someone acknowledges it; an
+      // incoming message says so and gets out of the way. The sender decides,
+      // and anything that doesn't (an older payload) keeps the old behaviour.
+      requireInteraction: payload.requireInteraction !== false,
       data: { url: payload.url || '/' },
     })
   );
@@ -41,11 +45,22 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const target = event.notification.data?.url || '/';
 
-  // Focus the panel if it's already open somewhere rather than piling up tabs.
+  // Focus the panel if it's already open somewhere rather than piling up tabs,
+  // and take it to wherever the notification points - a message alert names
+  // the conversation it came from, and focusing a panel sitting on some other
+  // tab would drop exactly the part the tap was asking for.
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (clientList) => {
       for (const client of clientList) {
-        if ('focus' in client) return client.focus();
+        if (!('focus' in client)) continue;
+        // navigate() is refused across origins and unavailable in some
+        // browsers; the panel also listens for this message and routes itself.
+        try {
+          client.postMessage({ type: 'navigate', url: target });
+        } catch {
+          // Focusing still beats doing nothing.
+        }
+        return client.focus();
       }
       return self.clients.openWindow ? self.clients.openWindow(target) : undefined;
     })

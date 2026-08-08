@@ -55,9 +55,12 @@ Confirmed outages reach the admin three ways, from `src/doors/offline-alert.js`:
    `/api/status/stream`, whose frames are raw WhatsApp state objects. A tab
    opened mid-outage is replayed the current state on connect.
 2. **Web Push** — for browsers that opted in from Settings → Phone notifications.
-   Needs `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` (`npm run keys:vapid`); with no
-   keys the panel hides the button. On iOS this requires the panel to be
-   installed to the home screen — see *Installing the panel*.
+   A VAPID pair is **hardcoded in `src/config.js`** so a fresh deploy needs no
+   setup; `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` still override it. That's a
+   deliberate exception to keeping secrets in env, and it only holds while this
+   repo is private — **if it ever goes public or gets shared, rotate with
+   `npm run keys:vapid` and move the pair to env vars.** On iOS this requires the
+   panel to be installed to the home screen — see *Installing the panel*.
 3. **WhatsApp DM** — to Settings → *Fallback WhatsApp number*, used only when
    push reached nobody. It's the least reliable channel (the bot's own connection
    is exactly what tends to break at the same time), so it's the fallback.
@@ -322,7 +325,6 @@ only as a fallback. Covered by `test/groups.test.js`.
 ```bash
 cp .env.example .env      # fill in Tuya creds, Mongo URI, admin password
 npm install
-npm run keys:vapid        # optional - paste the pair into .env for phone alerts
 npm run build             # builds the admin panel into admin/dist
 npm start
 ```

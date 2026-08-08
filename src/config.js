@@ -76,11 +76,21 @@ const config = {
     offlineRecheckMs: Number(process.env.DOOR_OFFLINE_RECHECK_MS) || 3000,
   },
 
-  // Web Push for the admin panel. Optional: with no keys the panel simply never
-  // offers to enable alerts, and offline notices fall back to WhatsApp.
+  // Web Push for the admin panel.
+  //
+  // These keys are baked in so the panel works on a fresh deploy with nothing
+  // configured. They are a deliberate exception to "secrets come from env", and
+  // only defensible because this repo is private: a VAPID pair identifies this
+  // server to the push services, and anyone holding the private key plus a
+  // subscription endpoint could send notifications that look like ours.
+  // Endpoints live in Mongo, not here, so the key alone isn't enough - but if
+  // this repo is ever made public or shared, rotate with `npm run keys:vapid`
+  // and move them to the env vars below, which still take precedence.
   push: {
-    publicKey: process.env.VAPID_PUBLIC_KEY || '',
-    privateKey: process.env.VAPID_PRIVATE_KEY || '',
+    publicKey:
+      process.env.VAPID_PUBLIC_KEY ||
+      'BNtxmEqo9oBDxcxRKaOlpAZ8-j5rC6Qo49ppstXUYWHksg-9jdoqMjhj2wNJhaubF1VsRGQCekP0-bH31TtS3Jo',
+    privateKey: process.env.VAPID_PRIVATE_KEY || 'lAT0Nq8A9v7cVE329yB5ANs3EIGbOBcXWndtlm1A4ak',
     subject: process.env.VAPID_SUBJECT || 'mailto:admin@mindsept.local',
   },
 

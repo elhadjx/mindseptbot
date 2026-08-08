@@ -47,7 +47,12 @@ router.post('/test', async (req, res) => {
     body: "C'est à ça que ressemblera une alerte porte hors ligne.",
     tag: 'push-test',
   });
-  res.json({ ok: true, delivered });
+  // "Nothing was delivered" has two very different meanings - nobody is
+  // subscribed, or everybody's delivery was rejected - and only the second is
+  // a fault. Reporting them as one told an admin to go re-enable alerts that
+  // were already on.
+  const subscribers = await PushSubscription.estimatedDocumentCount();
+  res.json({ ok: true, delivered, subscribers });
 });
 
 module.exports = router;

@@ -70,6 +70,17 @@ async function sendPush(payload, { ttl = 3600, urgency = 'high' } = {}) {
     const status = result.reason?.statusCode;
     if (status === 404 || status === 410) {
       dead.push(subscriptions[i].endpoint);
+    } else if (status === 403) {
+      // Not a dead subscription - a key problem, and deleting the row would
+      // destroy the evidence along with the device. It means this browser
+      // subscribed under a different VAPID public key than the one we are
+      // signing with, which happens when the pair is rotated, or when only one
+      // half of it is set in the environment.
+      console.error(
+        '[push] rejected (403): VAPID key mismatch. Check that VAPID_PUBLIC_KEY and ' +
+          'VAPID_PRIVATE_KEY are either both set (as a matching pair) or both unset, ' +
+          'then re-enable alerts on the device.'
+      );
     } else {
       console.warn(`[push] delivery failed (${status || '?'}):`, result.reason?.message);
     }

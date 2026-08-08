@@ -14,6 +14,71 @@ self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim(
 // useless offline anyway.
 self.addEventListener('fetch', () => {});
 
+/** VAPID keys travel as base64url; PushManager wants raw bytes. */
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map((char) => char.charCodeAt(0)));
+}
+
+/**
+ * The browser has invalidated our push subscription.
+ *
+ * Chrome fires this when it rotates or drops one - notably when the server's
+ * application server key changes underneath it. Ignoring it is how a device
+ * goes quiet forever while its owner is told alerts are on: nothing else in
+ * the panel ever notices, because the page may not be open for days.
+ *
+ * Same-origin fetches carry the panel's session cookie, which is what lets a
+ * worker talk to an authenticated API at all.
+ */
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    (async () => {
+      try {
+        const response = await fetch('/api/push/key', { credentials: 'same-origin' });
+        if (!response.ok) return;
+        const { configured, publicKey } = await response.json();
+        if (!configured) return;
+
+        const subscription = await self.registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey),
+        });
+        const json = subscription.toJSON();
+
+        await fetch('/api/push/subscribe', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            endpoint: json.endpoint,
+            keys: json.keys,
+            label: 'renewed automatically',
+          }),
+        });
+
+        // The old endpoint is dead; leaving its row behind means every future
+        // alert pays for a delivery that cannot succeed.
+        const old = event.oldSubscription?.endpoint;
+        if (old && old !== json.endpoint) {
+          await fetch('/api/push/subscribe', {
+            method: 'DELETE',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ endpoint: old }),
+          });
+        }
+      } catch (err) {
+        // Nothing else to try from here - the panel re-announces this browser
+        // on its next load, which is the other half of this safety net.
+        console.warn('[sw] could not renew the push subscription:', err);
+      }
+    })()
+  );
+});
+
 self.addEventListener('push', (event) => {
   let payload = {};
   try {

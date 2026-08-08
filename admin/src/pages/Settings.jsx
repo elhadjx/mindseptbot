@@ -558,6 +558,7 @@ function PushAlertsCard() {
     unsupported: "This browser can't do push notifications.",
     server_not_configured: 'No VAPID keys on the server - see the README to generate a pair.',
     permission_denied: 'Notifications are blocked. Allow them for this site in your browser settings.',
+    subscribe_failed: 'The browser refused to create a subscription.',
   };
 
   async function toggle() {
@@ -567,11 +568,16 @@ function PushAlertsCard() {
         await disablePush();
         setFlash({ ok: true, message: 'Alerts disabled on this device.' });
       } else {
-        const { ok, reason } = await enablePush();
+        const { ok, reason, detail } = await enablePush();
         setFlash(
           ok
             ? { ok: true, message: 'Alerts enabled on this device.' }
-            : { ok: false, message: REASONS[reason] || 'Could not enable alerts.' }
+            : {
+                ok: false,
+                message: detail
+                  ? `${REASONS[reason] || 'Could not enable alerts.'} (${detail})`
+                  : REASONS[reason] || 'Could not enable alerts.',
+              }
         );
       }
       await refresh();
@@ -585,12 +591,18 @@ function PushAlertsCard() {
   async function test() {
     setBusy(true);
     try {
-      const { delivered } = await api.testPush();
+      const { delivered, subscribers } = await api.testPush();
+      // A rejected delivery is a server-side problem the admin can't see from
+      // here, so point at where the reason is written down rather than
+      // implying nobody has enabled anything.
       setFlash({
         ok: delivered > 0,
         message: delivered
           ? `Sent to ${delivered} device${delivered === 1 ? '' : 's'}.`
-          : 'No device is subscribed yet.',
+          : subscribers > 0
+            ? `${subscribers} device${subscribers === 1 ? ' is' : 's are'} subscribed, but the ` +
+              'push service rejected every delivery — check the server logs.'
+            : 'No device is subscribed yet.',
       });
     } catch (err) {
       setFlash({ ok: false, message: err.message });

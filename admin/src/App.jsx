@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './lib/api';
+import { syncSubscription } from './lib/push';
 import Login from './pages/Login';
 import Connection from './pages/Connection';
 import Members from './pages/Members';
@@ -137,6 +138,13 @@ export default function App() {
   useEffect(() => {
     if (authed) loadContext();
   }, [authed, loadContext]);
+
+  // Re-announce this browser to the server on every load. A subscription the
+  // server pruned - or lost with the database - leaves the device silently
+  // unreachable otherwise, with the panel still showing alerts as on.
+  useEffect(() => {
+    if (authed) syncSubscription().catch(() => {});
+  }, [authed]);
 
   // Live connection state over SSE. EventSource reconnects on its own, so a
   // server restart heals without a page reload.

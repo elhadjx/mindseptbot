@@ -96,7 +96,7 @@ function createMessageNotifier({
     let body = isGroup ? `${sender}: ${previewOf(message)}` : previewOf(message);
     if (count > 1) body = `${count} nouveaux messages · ${body}`;
 
-    await push(
+    const delivered = await push(
       {
         title,
         body,
@@ -111,6 +111,14 @@ function createMessageNotifier({
       // A chat message that shows up an hour late is noise, and it is not
       // worth waking a dozing phone for.
       { ttl: 600, urgency: 'normal' }
+    );
+
+    // Says out loud whether anything was actually reached. "I sent no
+    // notification" and "I notified nobody, because no browser is subscribed"
+    // look identical from a phone that stayed quiet.
+    console.log(
+      `[alert] ${count} message(s) from ${title} - notified ${delivered} browser(s)` +
+        (delivered === 0 ? ' (no device has alerts enabled, or delivery was rejected)' : '')
     );
   }
 

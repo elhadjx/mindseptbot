@@ -49,6 +49,12 @@ export const api = {
   doors: () => request('/doors'),
   openDoor: (door) => request(`/doors/${door}/open`, { method: 'POST' }),
 
+  pushKey: () => request('/push/key'),
+  subscribePush: (subscription) => request('/push/subscribe', { method: 'POST', body: subscription }),
+  unsubscribePush: (endpoint) =>
+    request('/push/subscribe', { method: 'DELETE', body: { endpoint } }),
+  testPush: () => request('/push/test', { method: 'POST' }),
+
   chats: () => request('/messages/chats'),
   chatMessages: (chatId, { limit } = {}) =>
     request(

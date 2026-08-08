@@ -2,6 +2,7 @@ const Settings = require('../db/models/Settings');
 const User = require('../db/models/User');
 const AuditLog = require('../db/models/AuditLog');
 const { triggerDoor, DOORS } = require('../doors/door-service');
+const { reportDoorOffline, reportDoorOnline } = require('../doors/offline-alert');
 const { bus, EVENTS } = require('../events');
 const { parseCommand } = require('./command-router');
 const { identifyMessageSender } = require('./identity');
@@ -136,11 +137,17 @@ async function handleMessage(client, msg) {
   // 6. Open.
   const startedAt = Date.now();
   try {
-    const { simulated } = await triggerDoor(command.door, {
+    const { simulated, recovered } = await triggerDoor(command.door, {
       pulseMs: settings.relayPulseMs,
       simulate: settings.testMode,
     });
     const durationMs = Date.now() - startedAt;
+
+    // It answered, so whatever Tuya said about it a moment ago is history.
+    reportDoorOnline({ door: command.door, label: vars.door, simulated });
+    if (recovered) {
+      console.log(`[wa] ${command.door} was flagged offline but opened - stale reading`);
+    }
 
     await record({ ...base, decision: 'granted', durationMs, simulated });
     await respond(msg, settings, simulated ? 'simulated' : 'granted', vars);
@@ -153,14 +160,24 @@ async function handleMessage(client, msg) {
         `${user.displayName || identity.waId} in ${durationMs}ms`
     );
   } catch (err) {
+    const offline = Boolean(err.doorOffline);
     await record({
       ...base,
       decision: 'error',
-      reason: err.message,
+      reason: offline ? `door_offline (${err.message})` : err.message,
       durationMs: Date.now() - startedAt,
     });
-    await respond(msg, settings, 'error', vars);
+    await respond(msg, settings, offline ? 'door_offline' : 'error', vars);
     console.error(`[wa] door trigger failed:`, err.message);
+
+    if (offline) {
+      await reportDoorOffline({
+        door: command.door,
+        label: vars.door,
+        settings,
+        actor: user.displayName || identity.name || identity.waId,
+      });
+    }
   }
 }
 

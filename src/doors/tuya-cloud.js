@@ -62,7 +62,12 @@ class TuyaCloudClient {
     });
     const json = await res.json();
     if (!json.success) {
-      throw new Error(`Tuya API error ${json.code}: ${json.msg}`);
+      // Keep the numeric code on the error. Callers need to tell "the device is
+      // offline" apart from "our credentials are wrong" - both arrive here as a
+      // failed request, and the message alone is not worth branching on.
+      const err = new Error(`Tuya API error ${json.code}: ${json.msg}`);
+      err.tuyaCode = json.code;
+      throw err;
     }
     return json.result;
   }

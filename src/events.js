@@ -10,6 +10,8 @@ bus.setMaxListeners(50);
 const EVENTS = {
   WA_STATE: 'wa:state',
   DOOR_OPENED: 'door:opened',
+  DOOR_OFFLINE: 'door:offline',
+  DOOR_ONLINE: 'door:online',
   WA_MESSAGE: 'wa:message',
 };
 

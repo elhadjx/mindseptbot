@@ -17,9 +17,86 @@ Phase 1: the bot, the whitelist, the audit log and the panel.
    chat**.
 2. The bot — a `whatsapp-web.js` client running headless Chromium — sees the message,
    identifies the sender, and checks them against a whitelist in MongoDB.
-3. On success it pulses the front door relay through the Tuya Cloud API and reacts
-   ✅ to the message. Denials get ⛔, failures ⚠️.
+3. On success it checks the relay is reachable, then pulses the front door relay
+   through the Tuya Cloud API and reacts ✅ to the message. Denials get ⛔,
+   failures ⚠️, an unreachable door 📡.
 4. Every attempt, granted or not, is written to an audit log the panel can filter.
+
+## Offline doors
+
+Before pulsing, `triggerDoor()` asks Tuya whether the relay is reachable
+(`GET /v1.0/iot-03/devices/{id}` → `online`). A negative answer is re-checked
+once after `DOOR_OFFLINE_RECHECK_MS` (3s).
+
+**An offline reading never cancels the open.** Tuya's flag is heartbeat-based and
+lags reality by minutes in *both* directions, so refusing on it alone would lock
+members out of a door that works. The open is attempted regardless:
+
+- **It opens** → the flag was stale. Normal ✅, no alert, and the door is marked
+  healthy again. `triggerDoor` returns `recovered: true` for the log.
+- **It fails** → confirmed offline. The member gets the `door_offline` reply, the
+  audit row gets a `door_offline` reason, and the admin is alerted.
+
+The check is the *diagnosis*, not the decision — which is why a failed status
+call (`checkDoorOnline` returns `null`) is treated as "don't know", never as
+offline.
+
+A command that fails on its own is also classified offline if its Tuya error code
+is in `OFFLINE_ERROR_CODES`. That list is best-effort and unverified against a
+live device; nothing depends on it being right, because the status probe is the
+signal that actually decides. Being wrong there costs a generic error message
+instead of a specific one.
+
+### Alerts
+
+Confirmed outages reach the admin three ways, from `src/doors/offline-alert.js`:
+
+1. **Panel banner** — over `GET /api/doors/stream` (SSE). Its own stream, not
+   `/api/status/stream`, whose frames are raw WhatsApp state objects. A tab
+   opened mid-outage is replayed the current state on connect.
+2. **Web Push** — for browsers that opted in from Settings → Phone notifications.
+   Needs `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` (`npm run keys:vapid`); with no
+   keys the panel hides the button. On iOS this requires the panel to be
+   installed to the home screen — see *Installing the panel*.
+3. **WhatsApp DM** — to Settings → *Fallback WhatsApp number*, used only when
+   push reached nobody. It's the least reliable channel (the bot's own connection
+   is exactly what tends to break at the same time), so it's the fallback.
+
+**Outages are latched per door.** Ten people queued outside a dead door fire ten
+commands; the first alerts, the rest are logged only, and the latch clears on the
+next successful open. The dashboard still sees every attempt — the dedupe is
+about not teaching an admin to swipe the alert away.
+
+A simulated open never clears the latch. `reportDoorOnline()` takes `simulated`
+and refuses it there rather than leaving it to each caller: test mode sends no
+command, so it is no evidence the door is back, and one caller forgetting that
+would silently bury a live outage.
+
+## Installing the panel
+
+The panel is a PWA, installed to the home screen on the phones that should
+receive door alerts. That isn't cosmetic — **iOS delivers Web Push only to an
+installed app**, never to a Safari tab.
+
+What makes it installable:
+
+- `admin/public/manifest.webmanifest` — `display: standalone`, plus 192/512 icons
+  and a `maskable` 512 whose mark sits inside the middle ~60% so Android's circle
+  crop doesn't clip it.
+- Apple-only `<meta>` tags in `admin/index.html`. iOS reads *these*, not the
+  manifest, to decide on standalone mode.
+- The service worker is registered in `main.jsx` **on load**, not on first push
+  opt-in. A browser won't offer to install without an active service worker, and
+  iOS won't push until installed — registering lazily makes those circular. Its
+  `fetch` handler is a deliberate passthrough: a stale cached bundle controlling
+  a door is worse than a slow load.
+- Icons are flattened onto the bone background rather than left transparent —
+  iOS refuses to composite icon alpha and renders those pixels black.
+
+The panel login lasts **30 days** (`ADMIN_SESSION_MAX_AGE_MS`). An installed iOS
+app gets its own cookie jar, so it needs a separate login from Safari, and a
+short session would mean re-authenticating on the device you most need to answer
+from. A lost phone is revoked by changing the panel password.
 
 ## Stack constraints
 
@@ -41,14 +118,21 @@ src/
   index.js              boot: mongo -> express -> whatsapp
   config.js             env parsing, fails fast on missing vars
   events.js             in-process bus (WhatsApp state -> panel SSE)
-  db/models/            User (whitelist), AuditLog, Settings, Credentials (singletons)
+  db/models/            User (whitelist), AuditLog, Settings, Credentials (singletons),
+                        PushSubscription (browsers opted into alerts)
   security/             passwords.js - scrypt hashing for the panel login
-  doors/                tuya-cloud.js (Phase 0, unchanged) + door-service.js
+  doors/                tuya-cloud.js (Phase 0, unchanged), door-service.js,
+                        offline-alert.js (one alert per outage, not per attempt)
+  notify/               push.js - Web Push fan-out, prunes dead subscriptions
   whatsapp/             client.js, identity.js, phone.js, command-router.js,
                         rate-limiter.js, handlers.js, groups.js, contacts.js
   http/                 express app, password auth, /api routes
 admin/                  React + Vite panel (built to admin/dist)
+admin/public/sw.js      service worker - shows pushed alerts, no caching
+admin/public/manifest.webmanifest   PWA manifest + icons, so it installs to a
+                        home screen (required for push on iOS)
 test/handler.test.js    end-to-end tests for the authorization pipeline
+test/doors.test.js      reachability check, retry, failure classification, alert dedupe
 test/phone.test.js      phone number normalisation rules
 ```
 
@@ -157,6 +241,10 @@ These are all covered by `npm test` — don't regress them:
 - **Anchored keyword matching.** A command must *start* the message, so "je peux
   pas ouvre" is chatter, not an open.
 - **Rate limits.** Per-member and global sliding windows.
+- **An offline reading never refuses an open.** The relay is probed before every
+  pulse, but the pulse is attempted whichever way the probe answers — see
+  *Offline doors*. A stale flag must never become a lockout, and a failed probe
+  must never read as offline.
 - **Deny-by-default,** and every denial is logged with a reason.
 - **The process does not exit on an unhandled rejection.** RemoteAuth backs up
   on a `setInterval(async …)` with no catch, so one failed backup would
@@ -234,6 +322,7 @@ only as a fallback. Covered by `test/groups.test.js`.
 ```bash
 cp .env.example .env      # fill in Tuya creds, Mongo URI, admin password
 npm install
+npm run keys:vapid        # optional - paste the pair into .env for phone alerts
 npm run build             # builds the admin panel into admin/dist
 npm start
 ```
@@ -243,6 +332,13 @@ Then open http://localhost:3000, sign in, and:
 1. **Connection** — scan the QR with the phone the bot should use.
 2. **Settings** — load groups and pick the door group.
 3. **Members** — load participants and allow people.
+4. **Install the panel** on each phone that should receive alerts (Android: the
+   browser's install prompt; iOS: Share → Add to Home Screen), then open the
+   installed app and sign in — iOS keeps a separate session from Safari.
+5. **Settings → Phone notifications** — enable alerts on that device, and set a
+   fallback WhatsApp number.
+   Push needs HTTPS, so on a plain `http://localhost` this only works in Chrome
+   (which exempts localhost); Safari will not offer it.
 
 For panel development with hot reload, run `npm start` and `npm run dev:admin`
 in parallel; Vite proxies `/api` to port 3000.

@@ -4,8 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex, nofollow" />
-    <meta name="theme-color" content="#f6f2ea" />
+
+    <!-- Matches the two --clr-bg values in tokens.css, so the status bar and
+         the area behind the installed app don't fight the theme. -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f2ea" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1c1a17" />
+
     <link rel="icon" href="/favicon.ico" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- iOS reads these, not the manifest, to decide whether an installed panel
+         runs standalone. Without them "Add to Home Screen" gives a shortcut
+         that opens in browser chrome - and Safari delivers no push there, so
+         door alerts would silently never arrive. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Mindsept" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
     <title>Mindsept · Door access</title>
     <script>
       // Set the theme before first paint so a dark-mode reload doesn't flash bone.

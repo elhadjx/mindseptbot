@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { Card, Empty, Field, Flash, Toggle, useFlash } from '../components/ui';
+import {
+  currentSubscription,
+  disablePush,
+  enablePush,
+  iosNeedsInstall,
+  pushSupported,
+} from '../lib/push';
 
 export default function Settings({ settings, doors, onSaved, waReady }) {
   const [draft, setDraft] = useState(settings);
@@ -458,7 +465,7 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
               <div>
                 <div style={{ fontWeight: 600 }}>{door.label}</div>
                 <div className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
-                  {door.configured ? door.key : 'not configured in .env'}
+                  {door.configured ? `${door.key} · ${describeReach(door.online)}` : 'not configured in .env'}
                 </div>
               </div>
               <Toggle
@@ -472,8 +479,148 @@ export default function Settings({ settings, doors, onSaved, waReady }) {
         </div>
       </Card>
 
+      <Card
+        title="Door alerts"
+        hint="When a door stops answering, the panel shows a banner. These are the ways it also reaches your phone."
+      >
+        <Field
+          label="Fallback WhatsApp number"
+          hint="Used only when no browser has alerts enabled, or when push delivery fails. Leave empty for no WhatsApp fallback."
+        >
+          <input
+            className="input"
+            placeholder="0549212025"
+            value={draft.adminAlertPhone || ''}
+            onChange={(e) => set('adminAlertPhone', e.target.value)}
+          />
+        </Field>
+      </Card>
+
+      <PushAlertsCard />
+
       <AdminPasswordCard />
     </form>
+  );
+}
+
+/** Tuya's reachability flag, in words. `null` means the probe itself failed. */
+function describeReach(online) {
+  if (online === true) return 'online';
+  if (online === false) return 'not responding';
+  return 'reachability unknown';
+}
+
+/**
+ * Browser push opt-in. Outside the settings document on purpose: a subscription
+ * belongs to *this* browser, not to the deployment, so it can't be something
+ * you save once and expect to apply everywhere.
+ */
+function PushAlertsCard() {
+  const [state, setState] = useState({ supported: false, enabled: false, configured: false });
+  const [busy, setBusy] = useState(false);
+  const [flash, setFlash] = useFlash();
+  const needsInstall = iosNeedsInstall();
+
+  const refresh = async () => {
+    if (!pushSupported()) return setState((s) => ({ ...s, supported: false }));
+    const [{ configured }, subscription] = await Promise.all([
+      api.pushKey().catch(() => ({ configured: false })),
+      currentSubscription(),
+    ]);
+    setState({ supported: true, configured, enabled: Boolean(subscription) });
+  };
+
+  useEffect(() => {
+    refresh().catch(() => {});
+  }, []);
+
+  const REASONS = {
+    unsupported: "This browser can't do push notifications.",
+    server_not_configured: 'No VAPID keys on the server - see the README to generate a pair.',
+    permission_denied: 'Notifications are blocked. Allow them for this site in your browser settings.',
+  };
+
+  async function toggle() {
+    setBusy(true);
+    try {
+      if (state.enabled) {
+        await disablePush();
+        setFlash({ ok: true, message: 'Alerts disabled on this device.' });
+      } else {
+        const { ok, reason } = await enablePush();
+        setFlash(
+          ok
+            ? { ok: true, message: 'Alerts enabled on this device.' }
+            : { ok: false, message: REASONS[reason] || 'Could not enable alerts.' }
+        );
+      }
+      await refresh();
+    } catch (err) {
+      setFlash({ ok: false, message: err.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function test() {
+    setBusy(true);
+    try {
+      const { delivered } = await api.testPush();
+      setFlash({
+        ok: delivered > 0,
+        message: delivered
+          ? `Sent to ${delivered} device${delivered === 1 ? '' : 's'}.`
+          : 'No device is subscribed yet.',
+      });
+    } catch (err) {
+      setFlash({ ok: false, message: err.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card
+      title="Phone notifications"
+      hint="Enable this on each phone or laptop that should be woken when a door goes offline."
+    >
+      <div className="stack">
+        <Flash flash={flash} />
+
+        {!state.supported && <Empty>This browser doesn't support push notifications.</Empty>}
+
+        {state.supported && !state.configured && (
+          <Empty>Push isn't configured on the server. Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY.</Empty>
+        )}
+
+        {/* Worth saying before they tap: on iOS a plain Safari tab never gets
+            push, no matter how many times permission is granted. */}
+        {state.supported && state.configured && needsInstall && (
+          <Empty>
+            On iPhone, add this panel to your home screen first (Share → Add to Home Screen) — Safari
+            only delivers notifications to an installed panel.
+          </Empty>
+        )}
+
+        {state.supported && state.configured && (
+          <div className="spread">
+            <div className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
+              {state.enabled ? 'Alerts are on for this device.' : 'Alerts are off for this device.'}
+            </div>
+            <div className="row" style={{ gap: 8 }}>
+              {state.enabled && (
+                <button className="btn" type="button" disabled={busy} onClick={test}>
+                  Send a test
+                </button>
+              )}
+              <button className="btn" type="button" disabled={busy} onClick={toggle}>
+                {state.enabled ? 'Disable' : 'Enable on this device'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }
 

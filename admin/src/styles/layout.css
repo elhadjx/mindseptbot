@@ -182,6 +182,13 @@
   flex: 1;
 }
 
+/* Same shape as the test-mode notice, but a broken door is a fault rather than
+   a chosen state - so it takes the denied colour, not the pending one. */
+.test-banner--alert {
+  background: var(--clr-denied-wash);
+  color: var(--clr-denied);
+}
+
 /* One editable reply: label, reaction, message. */
 .reply-row {
   display: grid;

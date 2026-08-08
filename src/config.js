@@ -52,8 +52,13 @@ const config = {
   admin: {
     password: required('ADMIN_PASSWORD'),
     sessionSecret: required('SESSION_SECRET'),
-    // How long a panel login stays valid.
-    sessionMaxAgeMs: Number(process.env.ADMIN_SESSION_MAX_AGE_MS) || 12 * 60 * 60 * 1000,
+    // How long a panel login stays valid. 30 days because the panel is meant to
+    // be installed to a phone's home screen and woken by door alerts - and iOS
+    // gives an installed app its own cookie jar, so a short session means
+    // re-authenticating on the device you most need to answer from. The trade
+    // is a longer-lived credential on a phone; the panel is behind one password
+    // and a lost phone means revoking it by changing that password.
+    sessionMaxAgeMs: Number(process.env.ADMIN_SESSION_MAX_AGE_MS) || 30 * 24 * 60 * 60 * 1000,
   },
 
   tuya: {
@@ -65,6 +70,18 @@ const config = {
   doors: {
     frontDeviceId: process.env.DOOR_FRONT_DEVICE_ID,
     relayPulseMs: Number(process.env.RELAY_PULSE_MS) || 1000,
+    // Tuya marks a device offline on a heartbeat timeout, so a single "offline"
+    // reading is often just a gap. Wait this long and ask once more before
+    // believing it.
+    offlineRecheckMs: Number(process.env.DOOR_OFFLINE_RECHECK_MS) || 3000,
+  },
+
+  // Web Push for the admin panel. Optional: with no keys the panel simply never
+  // offers to enable alerts, and offline notices fall back to WhatsApp.
+  push: {
+    publicKey: process.env.VAPID_PUBLIC_KEY || '',
+    privateKey: process.env.VAPID_PRIVATE_KEY || '',
+    subject: process.env.VAPID_SUBJECT || 'mailto:admin@mindsept.local',
   },
 
   whatsapp: {

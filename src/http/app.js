@@ -12,6 +12,7 @@ const logRoutes = require('./routes/logs');
 const settingsRoutes = require('./routes/settings');
 const doorRoutes = require('./routes/doors');
 const messageRoutes = require('./routes/messages');
+const pushRoutes = require('./routes/push');
 
 const ADMIN_DIST = path.join(__dirname, '..', '..', 'admin', 'dist');
 
@@ -38,6 +39,7 @@ function createApp() {
   app.use('/api/settings', settingsRoutes);
   app.use('/api/doors', doorRoutes);
   app.use('/api/messages', messageRoutes);
+  app.use('/api/push', pushRoutes);
 
   app.use('/api', (req, res) => res.status(404).json({ ok: false, error: 'not_found' }));
 

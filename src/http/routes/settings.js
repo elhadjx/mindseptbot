@@ -7,6 +7,7 @@ const {
   defaultReplies,
   graphemeLength,
 } = require('../../whatsapp/replies');
+const { normalizePhone } = require('../../whatsapp/phone');
 
 const router = express.Router();
 
@@ -28,6 +29,7 @@ const EDITABLE = [
   'rateLimitGlobalPerMin',
   'relayPulseMs',
   'defaultCountryCode',
+  'adminAlertPhone',
 ];
 
 router.get('/', async (req, res) => {
@@ -50,6 +52,18 @@ router.patch('/', async (req, res) => {
         return res.status(400).json({ ok: false, error: 'country code must be 1-4 digits' });
       }
       settings.defaultCountryCode = cc;
+      continue;
+    }
+
+    if (field === 'adminAlertPhone') {
+      const raw = String(body[field] || '').trim();
+      // Empty is a valid choice - it means "no WhatsApp fallback". Anything
+      // else has to be a number we could actually reach, or the alert would
+      // fail silently at the worst possible moment.
+      if (raw && !normalizePhone(raw, settings.defaultCountryCode)) {
+        return res.status(400).json({ ok: false, error: 'alert number is not a valid phone' });
+      }
+      settings.adminAlertPhone = raw;
       continue;
     }
 

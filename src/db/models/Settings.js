@@ -87,6 +87,10 @@ const settingsSchema = new mongoose.Schema(
     rateLimitGlobalPerMin: { type: Number, default: 10 },
 
     relayPulseMs: { type: Number, default: config.doors.relayPulseMs },
+
+    // Where to send "the door is offline" when no browser has push enabled.
+    // Empty means no fallback - the panel banner is then the only alert.
+    adminAlertPhone: { type: String, default: '', trim: true },
   },
   { timestamps: true, versionKey: false, _id: false }
 );

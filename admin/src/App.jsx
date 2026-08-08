@@ -61,6 +61,7 @@ export default function App() {
   const [waState, setWaState] = useState({ status: 'starting' });
   const [settings, setSettings] = useState(null);
   const [doors, setDoors] = useState([]);
+  const [offlineDoors, setOfflineDoors] = useState(new Map()); // key -> label
   const [theme, toggleTheme] = useTheme();
 
   useEffect(() => {
@@ -92,6 +93,27 @@ export default function App() {
     source.onmessage = (event) => {
       try {
         setWaState(JSON.parse(event.data));
+      } catch {
+        // Ignore malformed frames rather than tearing down the stream.
+      }
+    };
+    return () => source.close();
+  }, [authed]);
+
+  // Door health, on its own stream. The server replays any door currently down
+  // when the stream opens, so a tab loaded mid-outage shows the banner at once.
+  useEffect(() => {
+    if (!authed) return undefined;
+    const source = new EventSource('/api/doors/stream');
+    source.onmessage = (event) => {
+      try {
+        const { type, door, label } = JSON.parse(event.data);
+        setOfflineDoors((current) => {
+          const next = new Map(current);
+          if (type === 'offline') next.set(door, label);
+          else next.delete(door);
+          return next;
+        });
       } catch {
         // Ignore malformed frames rather than tearing down the stream.
       }
@@ -189,6 +211,21 @@ export default function App() {
             <button className="btn btn--ghost btn--sm" onClick={() => setPage('settings')}>
               Turn off
             </button>
+          </div>
+        )}
+
+        {/* A door nobody can open is the most urgent thing this panel knows,
+            so it outranks the page you happened to be on. */}
+        {offlineDoors.size > 0 && (
+          <div className="test-banner test-banner--alert">
+            <span aria-hidden="true">📡</span>
+            <span>
+              <strong>
+                {[...offlineDoors.values()].join(', ')}{' '}
+                {offlineDoors.size === 1 ? 'is not responding.' : 'are not responding.'}
+              </strong>{' '}
+              Check the relay's power and WiFi — commands are failing.
+            </span>
           </div>
         )}
 

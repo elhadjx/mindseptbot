@@ -51,6 +51,13 @@ const OUTCOMES = [
     text: 'Je ne connais pas cette porte.',
   },
   {
+    key: 'door_offline',
+    label: 'Door not responding',
+    hint: 'The relay is unreachable. An admin has been notified automatically.',
+    emoji: '📡',
+    text: "La porte ne répond pas. Un admin a été prévenu.",
+  },
+  {
     key: 'error',
     label: 'Something broke',
     hint: 'The member was allowed, but the door command failed.',
@@ -69,6 +76,7 @@ const OUTCOME_DECISION = {
   denied_rate_limited: 'denied',
   denied_door_disabled: 'denied',
   denied_unknown_door: 'denied',
+  door_offline: 'error',
   error: 'error',
 };
 

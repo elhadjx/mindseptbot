@@ -16,6 +16,29 @@ const OUTCOMES = [
     text: 'Ouvert 🚪',
   },
   {
+    key: 'granted_unconfirmed',
+    label: 'Sent, but the door was offline',
+    hint: 'The relay was not answering, so the command went out blind. Ask whether it actually opened — the reply is recorded.',
+    emoji: '📡',
+    text:
+      "La porte ne répond pas (sûrement hors ligne), mais j'ai quand même envoyé l'ouverture. " +
+      "Est-ce qu'elle s'est ouverte ?",
+  },
+  {
+    key: 'confirm_opened',
+    label: 'Member said it opened',
+    hint: 'Their answer to the question above was yes. The door works, whatever Tuya thinks.',
+    emoji: '👍',
+    text: 'Parfait, merci — je note que la porte marche.',
+  },
+  {
+    key: 'confirm_failed',
+    label: 'Member said it stayed shut',
+    hint: 'Their answer was no. This is the only hard proof of an outage there is, so an admin is alerted.',
+    emoji: '📡',
+    text: "Merci de l'avoir dit. La porte est bien en panne — un admin a été prévenu.",
+  },
+  {
     key: 'simulated',
     label: 'Test mode',
     hint: 'Test mode is on, so nothing actually opened. Keep this one unambiguous.',
@@ -71,6 +94,12 @@ const OUTCOME_KEYS = OUTCOMES.map((o) => o.key);
 /** Which audit decision each outcome corresponds to. */
 const OUTCOME_DECISION = {
   granted: 'granted',
+  // Logged as granted with an `unconfirmed` mark rather than as its own
+  // decision: the member was allowed and the command was sent. Whether the
+  // door moved is a separate question, and it has its own field.
+  granted_unconfirmed: 'granted',
+  confirm_opened: 'granted',
+  confirm_failed: 'error',
   simulated: 'granted',
   denied_not_whitelisted: 'denied',
   denied_rate_limited: 'denied',

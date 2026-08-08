@@ -2,19 +2,26 @@ const Settings = require('../db/models/Settings');
 const User = require('../db/models/User');
 const AuditLog = require('../db/models/AuditLog');
 const { triggerDoor, DOORS } = require('../doors/door-service');
-const { reportDoorOffline, reportDoorOnline } = require('../doors/offline-alert');
+const {
+  reportDoorOffline,
+  reportDoorConfirmedOffline,
+  reportDoorOnline,
+} = require('../doors/offline-alert');
 const { bus, EVENTS } = require('../events');
 const { parseCommand } = require('./command-router');
+const { chatHasQuestion, parseAnswer, rememberQuestion, takeQuestion } = require('./confirmations');
 const { identifyMessageSender } = require('./identity');
 const { renderReply } = require('./replies');
 const rateLimiter = require('./rate-limiter');
 
+/** @returns the stored document, or null - a logging failure is not fatal. */
 async function record(entry) {
   try {
-    await AuditLog.create(entry);
+    return await AuditLog.create(entry);
   } catch (err) {
     // A logging failure must never swallow a door open.
     console.error('[audit] write failed:', err.message);
+    return null;
   }
 }
 
@@ -69,7 +76,9 @@ async function handleMessage(client, msg) {
 
   // 3. Parse - is this a command at all?
   const command = parseCommand(msg.body, settings);
-  if (!command) return;
+  // Not a command, but it may be the answer to one: a door that read offline
+  // was asked about, and only the person at the door can settle it.
+  if (!command) return resolveConfirmation(client, msg, settings);
 
   // 4. Identify - raw JID plus best-effort LID/phone.
   const identity = await identifyMessageSender(client, msg);
@@ -137,17 +146,45 @@ async function handleMessage(client, msg) {
   // 6. Open.
   const startedAt = Date.now();
   try {
-    const { simulated, recovered } = await triggerDoor(command.door, {
+    const { simulated, wasOffline } = await triggerDoor(command.door, {
       pulseMs: settings.relayPulseMs,
       simulate: settings.testMode,
     });
     const durationMs = Date.now() - startedAt;
+    const actor = user.displayName || identity.name || identity.waId;
+
+    // The command went out to a door that was not answering. Tuya accepting it
+    // proves nothing, so this is not reported as an open: the member is asked,
+    // the admin is alerted, and the row is marked unconfirmed until somebody
+    // says otherwise.
+    if (wasOffline) {
+      const entry = await record({
+        ...base,
+        decision: 'granted',
+        reason: 'door_offline_sent_blind',
+        durationMs,
+        simulated,
+        unconfirmed: true,
+      });
+      await respond(msg, settings, 'granted_unconfirmed', vars);
+      await reportDoorOffline({ door: command.door, label: vars.door, settings, actor });
+
+      rememberQuestion({
+        chatId: msg.from,
+        actorKey: identity.waId,
+        auditId: entry?._id,
+        door: command.door,
+        label: vars.door,
+        userId: user._id,
+        actorName: actor,
+      });
+
+      console.log(`[wa] ${command.door} command sent blind for ${actor} - awaiting confirmation`);
+      return;
+    }
 
     // It answered, so whatever Tuya said about it a moment ago is history.
     reportDoorOnline({ door: command.door, label: vars.door, simulated });
-    if (recovered) {
-      console.log(`[wa] ${command.door} was flagged offline but opened - stale reading`);
-    }
 
     await record({ ...base, decision: 'granted', durationMs, simulated });
     await respond(msg, settings, simulated ? 'simulated' : 'granted', vars);
@@ -179,6 +216,76 @@ async function handleMessage(client, msg) {
       });
     }
   }
+}
+
+/**
+ * Handle a message that isn't a command but might be an answer to "did it
+ * open?".
+ *
+ * The checks are ordered by cost, because every non-command message in every
+ * listened group lands here: a Map lookup, then a regex over the text, and
+ * only then the round trip that identifies the sender. A quiet group with no
+ * question outstanding pays for one Map lookup.
+ *
+ * An unrecognised message is left entirely alone - no reply, no log. People
+ * talk in these groups, and a bot that argued with anything it couldn't parse
+ * would be worse than one that waits.
+ */
+async function resolveConfirmation(client, msg, settings) {
+  if (!chatHasQuestion(msg.from)) return;
+
+  const answer = parseAnswer(msg.body);
+  if (!answer) return;
+
+  const identity = await identifyMessageSender(client, msg);
+  const question = takeQuestion(msg.from, identity.waId);
+  if (!question) return;
+
+  const vars = { name: question.actorName || identity.name || 'toi', door: question.label };
+
+  if (answer === 'yes') {
+    // A person watched it open. That outranks anything Tuya has to say, so the
+    // outage is over as far as the panel and the alerts are concerned.
+    if (question.auditId) {
+      await AuditLog.updateOne(
+        { _id: question.auditId },
+        { $set: { unconfirmed: false, confirmedOpen: true, reason: 'confirmed_open_by_member' } }
+      ).catch((err) => console.error('[audit] confirmation write failed:', err.message));
+    }
+    reportDoorOnline({ door: question.door, label: question.label });
+    if (question.userId) {
+      await User.updateOne({ _id: question.userId }, { $set: { lastOpenedAt: new Date() } });
+    }
+    bus.emit(EVENTS.DOOR_OPENED, { door: question.door, actor: question.actorName });
+    await respond(msg, settings, 'confirm_opened', vars);
+    console.log(`[wa] ${question.door} confirmed open by ${question.actorName}`);
+    return;
+  }
+
+  // Confirmed shut. The row said "granted" on the strength of a command we
+  // sent blind; it is now known to be wrong, so it is corrected rather than
+  // left standing next to the ones that really opened.
+  if (question.auditId) {
+    await AuditLog.updateOne(
+      { _id: question.auditId },
+      {
+        $set: {
+          decision: 'error',
+          unconfirmed: false,
+          confirmedOpen: false,
+          reason: 'door_offline (confirmed by member)',
+        },
+      }
+    ).catch((err) => console.error('[audit] confirmation write failed:', err.message));
+  }
+  await reportDoorConfirmedOffline({
+    door: question.door,
+    label: question.label,
+    settings,
+    actor: question.actorName,
+  });
+  await respond(msg, settings, 'confirm_failed', vars);
+  console.log(`[wa] ${question.door} confirmed dead by ${question.actorName}`);
 }
 
 module.exports = { handleMessage };

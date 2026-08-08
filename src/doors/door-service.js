@@ -67,12 +67,14 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // negative answer we wait and ask again. But an offline reading never cancels
 // the open: Tuya's flag is heartbeat-based and lags reality by minutes in both
 // directions, so refusing on it alone would lock people out of a door that
-// works. We try anyway and let the outcome decide - which also means a
-// successful open silently corrects a stale flag.
+// works. We try anyway.
 //
-// Returns { simulated, wasOffline, recovered }. `recovered` marks exactly that
-// case - reported offline, opened fine - which is what keeps a stale reading
-// from waking an admin at 3am.
+// What we cannot do is claim it worked. Tuya acknowledges a command for a
+// device that is unplugged - the cloud confirms it received the request, never
+// that the relay acted on it - so a resolved promise here is not evidence of
+// an open. `wasOffline` says exactly that: the command went out blind, and
+// whether the door moved is still an open question. Callers must not report it
+// as a plain success; only a human at the door can settle it.
 async function triggerDoor(doorKey, { pulseMs = config.doors.relayPulseMs, simulate = false } = {}) {
   const door = DOORS[doorKey];
   if (!door) {
@@ -84,7 +86,7 @@ async function triggerDoor(doorKey, { pulseMs = config.doors.relayPulseMs, simul
 
   if (simulate) {
     console.log(`[${door.label}] TEST MODE - pretending to pulse the relay, nothing was sent`);
-    return { simulated: true, wasOffline: false, recovered: false };
+    return { simulated: true, wasOffline: false };
   }
 
   let wasOffline = false;
@@ -122,10 +124,10 @@ async function triggerDoor(doorKey, { pulseMs = config.doors.relayPulseMs, simul
   }
 
   if (wasOffline) {
-    console.log(`[${door.label}] opened despite the offline reading - flag was stale`);
+    console.log(`[${door.label}] command sent to a door reading offline - unconfirmed`);
   }
 
-  return { simulated: false, wasOffline, recovered: wasOffline };
+  return { simulated: false, wasOffline };
 }
 
 module.exports = { DOORS, listDoors, checkDoorOnline, triggerDoor };

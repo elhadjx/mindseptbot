@@ -6,8 +6,14 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const Module = require('module');
 
 const doorServicePath = path.resolve(__dirname, '../src/doors/door-service.js');
+const alertPath = path.resolve(__dirname, '../src/doors/offline-alert.js');
 const opens = [];
 const simulatedOpens = [];
+
+// The door reads offline, so the command goes out blind. Flipped per scenario.
+const door = { offline: false };
+// Which way the alert module was called, without dragging push and WhatsApp in.
+const alerts = { offline: [], confirmed: [], online: [] };
 
 // Stub triggerDoor before anything requires it.
 const realLoad = Module._load;
@@ -28,13 +34,25 @@ Module._load = function (request, parent, isMain) {
       triggerDoor: async (key, { simulate = false } = {}) => {
         if (simulate) {
           simulatedOpens.push(key);
-          return { simulated: true };
+          return { simulated: true, wasOffline: false };
         }
         opens.push(key);
-        return { simulated: false };
+        return { simulated: false, wasOffline: door.offline };
       },
     };
   }
+
+  // Stubbed so the flow can be asserted without a push service or a WhatsApp
+  // connection - what matters here is which report the handler chose.
+  if (resolved === alertPath) {
+    return {
+      reportDoorOffline: async (a) => alerts.offline.push(a),
+      reportDoorConfirmedOffline: async (a) => alerts.confirmed.push(a),
+      reportDoorOnline: (a) => alerts.online.push(a),
+      offlineDoorKeys: () => [],
+    };
+  }
+
   return realLoad(request, parent, isMain);
 };
 
@@ -45,6 +63,7 @@ const AuditLog = require('../src/db/models/AuditLog');
 const { handleMessage } = require('../src/whatsapp/handlers');
 const { backfillPhones } = require('../src/whatsapp/phone');
 const rateLimiter = require('../src/whatsapp/rate-limiter');
+const confirmations = require('../src/whatsapp/confirmations');
 
 const GROUP = '120363000000000000@g.us';
 const SECOND_GROUP = '120363111111111111@g.us';
@@ -266,6 +285,69 @@ async function main() {
   check('turning test mode off opens for real again', opens.length === realOpensBefore + 1);
   log = await AuditLog.findOne().sort({ at: -1 });
   check('  and that entry is not marked simulated', log?.simulated === false);
+
+  console.log('\n-- the door was offline, so we ask --');
+  rateLimiter.reset();
+  confirmations.reset();
+  door.offline = true;
+  const blindOpensBefore = opens.length;
+  // Earlier sections opened the door for real, so measure from here.
+  const onlineBefore = alerts.online.length;
+
+  m = makeMsg({ author: '212661111111@c.us', body: '/open' });
+  await handleMessage(client, m);
+  check('the command is still sent to an offline door', opens.length - blindOpensBefore === 1);
+  check('  reacted with the offline emoji, not the granted one', m.reactions[0] === '📡', m.reactions[0]);
+  check('  asked whether it opened', /ouverte \?/.test(m.replies[0] || ''), m.replies[0]);
+  log = await AuditLog.findOne().sort({ at: -1 });
+  const blindLogId = String(log?._id);
+  check('  logged as granted but unconfirmed', log?.decision === 'granted' && log?.unconfirmed === true);
+  check('  nobody has answered yet', log?.confirmedOpen === null, String(log?.confirmedOpen));
+  check('  the admin was alerted', alerts.offline.length === 1);
+  check('  and it was NOT reported as back online', alerts.online.length === onlineBefore);
+
+  // Ordinary chatter while a question is outstanding must not answer it.
+  m = makeMsg({ author: '212661111111@c.us', body: 'la porte est ouverte' });
+  await handleMessage(client, m);
+  check('a sentence containing an answer word is not an answer', m.replies.length === 0);
+
+  // Nor may somebody else answer for them.
+  m = makeMsg({ author: '212669999999@c.us', body: 'wah' });
+  await handleMessage(client, m);
+  check('someone else cannot answer it', m.replies.length === 0);
+
+  m = makeMsg({ author: '212661111111@c.us', body: 'wah' });
+  await handleMessage(client, m);
+  check('the member answering yes is thanked', m.reactions[0] === '👍', m.reactions[0]);
+  log = await AuditLog.findById(blindLogId);
+  check('  the row is no longer unconfirmed', log?.unconfirmed === false);
+  check('  and records that it opened', log?.confirmedOpen === true);
+  check('  a person beats the heartbeat: the door is back online', alerts.online.length === onlineBefore + 1);
+  check('  no new audit row for the answer', String((await AuditLog.findOne().sort({ at: -1 }))?._id) === blindLogId);
+
+  // Answering twice does nothing: the question was consumed.
+  m = makeMsg({ author: '212661111111@c.us', body: 'wah' });
+  await handleMessage(client, m);
+  check('answering again is ignored', m.replies.length === 0);
+
+  console.log('\n-- and when they say it stayed shut --');
+  rateLimiter.reset();
+  m = makeMsg({ author: '212661111111@c.us', body: '/open' });
+  await handleMessage(client, m);
+  log = await AuditLog.findOne().sort({ at: -1 });
+  const deadLogId = String(log?._id);
+
+  m = makeMsg({ author: '212661111111@c.us', body: 'walou' });
+  await handleMessage(client, m);
+  check('the member is told an admin was warned', /admin/i.test(m.replies[0] || ''), m.replies[0]);
+  log = await AuditLog.findById(deadLogId);
+  check('  the granted row is corrected to an error', log?.decision === 'error', log?.decision);
+  check('  and records that it did not open', log?.confirmedOpen === false);
+  check('  the outage is escalated as confirmed', alerts.confirmed.length === 1);
+  check('  by name', alerts.confirmed[0]?.actor === 'Allowed Person', alerts.confirmed[0]?.actor);
+
+  door.offline = false;
+  confirmations.reset();
 
   console.log('\n-- direct messages --');
   // A DM has no author: msg.from IS the sender.

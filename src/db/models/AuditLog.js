@@ -11,6 +11,13 @@ const auditLogSchema = new mongoose.Schema(
     // True when test mode was on, i.e. the door did NOT physically open. The
     // log would otherwise claim opens that never happened.
     simulated: { type: Boolean, default: false },
+    // The door was reading offline, so the command was sent without knowing it
+    // would land. Tuya acknowledges commands for unplugged devices, so a
+    // "granted" row alone would overstate what we know.
+    unconfirmed: { type: Boolean, default: false },
+    // What the member answered when asked whether it actually opened. null
+    // means they never said - unanswered is not the same as "it failed".
+    confirmedOpen: { type: Boolean, default: null },
 
     actorWaId: { type: String, default: null, index: true },
     actorPhone: { type: String, default: null },

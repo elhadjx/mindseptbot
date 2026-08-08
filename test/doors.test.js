@@ -84,7 +84,12 @@ Module._load = function (request, parent, isMain) {
 };
 
 const { triggerDoor, checkDoorOnline } = require('../src/doors/door-service');
-const { reportDoorOffline, reportDoorOnline, offlineDoorKeys } = require('../src/doors/offline-alert');
+const {
+  reportDoorOffline,
+  reportDoorConfirmedOffline,
+  reportDoorOnline,
+  offlineDoorKeys,
+} = require('../src/doors/offline-alert');
 const { bus, EVENTS } = require('../src/events');
 
 let passed = 0;
@@ -142,7 +147,10 @@ async function main() {
   tuya.online = false;
   ({ result } = await attempt());
   check('a door offline twice is still attempted', JSON.stringify(tuya.commands) === '[true,false]');
-  check('opening despite an offline reading reports recovered', result.recovered === true);
+  // Tuya acknowledges commands for unplugged devices, so the call coming back
+  // clean is not evidence of an open. It must say so rather than claim one.
+  check('a command sent to an offline door is flagged unconfirmed', result.wasOffline === true);
+  check('and it is never reported as recovered', result.recovered === undefined);
 
   reset();
   tuya.failStatus = true;
@@ -234,6 +242,28 @@ async function main() {
   check('a simulated open leaves a real outage latched', offlineDoorKeys().includes('front'));
   reportDoorOnline({ door: 'front', label: 'Front door' });
   check('a real open then clears it', offlineDoorKeys().length === 0);
+
+  console.log('\n-- confirmed by a person --');
+
+  // A member saying "it did not open" is the only hard evidence of an outage
+  // there is, so it alerts even though the probe already latched the door.
+  reset();
+  push.delivered = 1;
+  await reportDoorOffline({ door: 'front', label: 'Front door', settings, actor: 'Sam' });
+  await reportDoorConfirmedOffline({ door: 'front', label: 'Front door', settings, actor: 'Sam' });
+  check('a confirmed outage alerts on top of the probe', push.sent.length === 2);
+  check('  and says it was confirmed', /ne s'ouvre pas/.test(push.sent[1]?.title || ''));
+
+  await reportDoorConfirmedOffline({ door: 'front', label: 'Front door', settings, actor: 'Alex' });
+  check('a second person confirming does not re-notify', push.sent.length === 2);
+
+  reportDoorOnline({ door: 'front', label: 'Front door' });
+  reset();
+  push.delivered = 1;
+  await reportDoorConfirmedOffline({ door: 'front', label: 'Front door', settings, actor: 'Sam' });
+  check('a new outage can be confirmed again', push.sent.length === 1);
+  check('  and confirming latches the door for the panel', offlineDoorKeys().includes('front'));
+  reportDoorOnline({ door: 'front', label: 'Front door' });
 
   console.log(`\n${passed} passed, ${failed} failed\n`);
   process.exit(failed ? 1 : 0);

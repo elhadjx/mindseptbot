@@ -28,8 +28,19 @@ export default function Connection({ state, doors, offlineDoors }) {
   async function openDoor(key) {
     setBusyDoor(key);
     try {
-      await api.openDoor(key);
-      setFlash({ ok: true, message: 'Door opened.' });
+      const { unconfirmed } = await api.openDoor(key);
+      // Tuya accepts a command for an unplugged relay, so "the call worked" is
+      // not "the door opened". Say which one actually happened.
+      setFlash(
+        unconfirmed
+          ? {
+              ok: false,
+              message:
+                "The door isn't responding — the open was sent anyway, but nothing confirms it " +
+                'worked. Go and check.',
+            }
+          : { ok: true, message: 'Door opened.' }
+      );
     } catch (err) {
       setFlash({ ok: false, message: `Could not open: ${err.message}` });
     } finally {

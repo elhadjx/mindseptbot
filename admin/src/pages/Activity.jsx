@@ -127,6 +127,22 @@ export default function Activity() {
                               🧪 test
                             </span>
                           )}
+                          {/* Sent to a door that was not answering. Nobody has
+                              said whether it opened, so the row must not read
+                              as a plain success. */}
+                          {entry.unconfirmed && (
+                            <span
+                              className="chip chip--error"
+                              title="The door was offline — the command was sent, but nothing confirms it opened"
+                            >
+                              ❓ unconfirmed
+                            </span>
+                          )}
+                          {entry.confirmedOpen === true && (
+                            <span className="chip chip--granted" title="The member confirmed it opened">
+                              👍 confirmed
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td data-label="Who">

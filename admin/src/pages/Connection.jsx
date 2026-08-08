@@ -11,6 +11,14 @@ const STATUS_COPY = {
   auth_failure: { label: 'Auth failed', seed: 'denied', hint: 'Re-link the number below.' },
 };
 
+// Why an open couldn't be vouched for. The two are different failures: one
+// door never answered, the other answered and then didn't move.
+const UNCONFIRMED = {
+  door_offline: "The door isn't responding — the open was sent anyway, but nothing confirms it worked.",
+  relay_did_not_switch:
+    'Tuya accepted the command, but the relay never reported switching — the door probably did not open.',
+};
+
 export default function Connection({ state, doors, offlineDoors }) {
   const [flash, setFlash] = useFlash();
   const [busyDoor, setBusyDoor] = useState(null);
@@ -28,17 +36,12 @@ export default function Connection({ state, doors, offlineDoors }) {
   async function openDoor(key) {
     setBusyDoor(key);
     try {
-      const { unconfirmed } = await api.openDoor(key);
+      const { unconfirmed, reason } = await api.openDoor(key);
       // Tuya accepts a command for an unplugged relay, so "the call worked" is
       // not "the door opened". Say which one actually happened.
       setFlash(
         unconfirmed
-          ? {
-              ok: false,
-              message:
-                "The door isn't responding — the open was sent anyway, but nothing confirms it " +
-                'worked. Go and check.',
-            }
+          ? { ok: false, message: `${UNCONFIRMED[reason] || UNCONFIRMED.door_offline} Go and check.` }
           : { ok: true, message: 'Door opened.' }
       );
     } catch (err) {

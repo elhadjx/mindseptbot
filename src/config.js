@@ -74,6 +74,19 @@ const config = {
     // reading is often just a gap. Wait this long and ask once more before
     // believing it.
     offlineRecheckMs: Number(process.env.DOOR_OFFLINE_RECHECK_MS) || 3000,
+
+    // After pulsing, read the relay's own reported state back to see whether it
+    // actually switched. Tuya acknowledges commands for a device that is no
+    // longer there, and its offline flag lags by minutes, so this readback is
+    // the only same-second evidence an open really happened.
+    //
+    // Set DOOR_VERIFY=off if the relay reports too slowly to be caught inside
+    // the pulse - that would have it asking "did it open?" after opens that
+    // worked, which is worse than not asking.
+    verifyPulse: process.env.DOOR_VERIFY !== 'off',
+    // How long to let the device report the change before looking. Kept inside
+    // the pulse, so verifying does not hold the relay closed any longer.
+    verifyDelayMs: Number(process.env.DOOR_VERIFY_DELAY_MS) || 500,
   },
 
   // Web Push for the admin panel.

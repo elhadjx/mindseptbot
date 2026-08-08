@@ -146,22 +146,23 @@ async function handleMessage(client, msg) {
   // 6. Open.
   const startedAt = Date.now();
   try {
-    const { simulated, wasOffline } = await triggerDoor(command.door, {
+    const { simulated, unconfirmed, reason } = await triggerDoor(command.door, {
       pulseMs: settings.relayPulseMs,
       simulate: settings.testMode,
     });
     const durationMs = Date.now() - startedAt;
     const actor = user.displayName || identity.name || identity.waId;
 
-    // The command went out to a door that was not answering. Tuya accepting it
-    // proves nothing, so this is not reported as an open: the member is asked,
-    // the admin is alerted, and the row is marked unconfirmed until somebody
-    // says otherwise.
-    if (wasOffline) {
+    // Nothing proved the door opened - either it was already reading offline,
+    // or the relay never reported the switch. Tuya accepting the command means
+    // nothing either way, so this is not reported as an open: the member is
+    // asked, the admin is alerted, and the row is marked unconfirmed until
+    // somebody says otherwise.
+    if (unconfirmed) {
       const entry = await record({
         ...base,
         decision: 'granted',
-        reason: 'door_offline_sent_blind',
+        reason: `sent_unconfirmed (${reason})`,
         durationMs,
         simulated,
         unconfirmed: true,
@@ -179,11 +180,14 @@ async function handleMessage(client, msg) {
         actorName: actor,
       });
 
-      console.log(`[wa] ${command.door} command sent blind for ${actor} - awaiting confirmation`);
+      console.log(
+        `[wa] ${command.door} unconfirmed (${reason}) for ${actor} - awaiting confirmation`
+      );
       return;
     }
 
-    // It answered, so whatever Tuya said about it a moment ago is history.
+    // The relay reported the switch, so whatever Tuya said about reachability a
+    // moment ago is history.
     reportDoorOnline({ door: command.door, label: vars.door, simulated });
 
     await record({ ...base, decision: 'granted', durationMs, simulated });

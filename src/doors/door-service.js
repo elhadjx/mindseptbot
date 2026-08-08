@@ -23,6 +23,36 @@ function listDoors() {
 }
 
 /**
+ * Everything Tuya will tell us about the relay in one call: whether it thinks
+ * the device is reachable, and the switch state the device itself last
+ * reported.
+ *
+ * The two are worth different amounts. `online` is a heartbeat and lags
+ * reality by minutes in both directions. `dp` is what the hardware said about
+ * itself, which is the closest thing to a witness this system has.
+ *
+ * @returns {Promise<{online: boolean|null, dp: *}|null>} null means the call
+ *   failed. `dp` undefined means the response carried no state for our switch -
+ *   nothing to read, as opposed to a switch that read false.
+ */
+async function readDoorState(doorKey) {
+  const door = DOORS[doorKey];
+  if (!door?.deviceId) return null;
+
+  try {
+    const result = await tuya.request('GET', `/v1.0/iot-03/devices/${door.deviceId}`);
+    const status = Array.isArray(result?.status) ? result.status : null;
+    return {
+      online: typeof result?.online === 'boolean' ? result.online : null,
+      dp: status ? status.find((point) => point.code === door.dpCode)?.value : undefined,
+    };
+  } catch (err) {
+    console.warn(`[${door.label}] state read failed:`, err.message);
+    return null;
+  }
+}
+
+/**
  * Is the door's relay currently reachable, as far as Tuya knows?
  *
  * @returns {Promise<boolean|null>} null means "we couldn't find out" - the
@@ -31,16 +61,24 @@ function listDoors() {
  *   door on every single open.
  */
 async function checkDoorOnline(doorKey) {
-  const door = DOORS[doorKey];
-  if (!door?.deviceId) return null;
+  const state = await readDoorState(doorKey);
+  return state ? state.online : null;
+}
 
-  try {
-    const result = await tuya.request('GET', `/v1.0/iot-03/devices/${door.deviceId}`);
-    return typeof result?.online === 'boolean' ? result.online : null;
-  } catch (err) {
-    console.warn(`[${door.label}] online check failed:`, err.message);
-    return null;
-  }
+/**
+ * Read a post-pulse state as a verdict on whether the relay actually switched.
+ *
+ * @returns {'switched'|'offline'|'no_switch'|null} null means unverifiable -
+ *   the read failed, or the response carried no state for this switch. Never
+ *   guess in that case: a false alarm on a working door teaches people to
+ *   ignore the question.
+ */
+function judgePulse(state) {
+  if (!state) return null;
+  if (state.dp === undefined) return null;
+  // Not there to have switched, whatever it last reported about itself.
+  if (state.online === false) return 'offline';
+  return state.dp === true ? 'switched' : 'no_switch';
 }
 
 // Secondary evidence only. The status endpoint's `online` flag is the signal we
@@ -72,9 +110,18 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // What we cannot do is claim it worked. Tuya acknowledges a command for a
 // device that is unplugged - the cloud confirms it received the request, never
 // that the relay acted on it - so a resolved promise here is not evidence of
-// an open. `wasOffline` says exactly that: the command went out blind, and
-// whether the door moved is still an open question. Callers must not report it
-// as a plain success; only a human at the door can settle it.
+// an open.
+//
+// Nor is a healthy `online` flag. Tuya only marks a device offline after a
+// heartbeat timeout, so for the minutes between a relay dying and Tuya
+// noticing, every reading says the door is fine and every command is accepted.
+// That window is where a confident "opened" is most likely to be a lie. So
+// after switching on we read the relay's own reported state back: the device
+// saying switch_1 is closed is evidence, where the cloud's receipt is not.
+//
+// Returns { simulated, unconfirmed, reason }. `unconfirmed` means exactly one
+// thing: nothing here proves the door opened. Callers must not report those as
+// a plain success - only a person at the door can settle it.
 async function triggerDoor(doorKey, { pulseMs = config.doors.relayPulseMs, simulate = false } = {}) {
   const door = DOORS[doorKey];
   if (!door) {
@@ -86,7 +133,7 @@ async function triggerDoor(doorKey, { pulseMs = config.doors.relayPulseMs, simul
 
   if (simulate) {
     console.log(`[${door.label}] TEST MODE - pretending to pulse the relay, nothing was sent`);
-    return { simulated: true, wasOffline: false };
+    return { simulated: true, unconfirmed: false, reason: null };
   }
 
   let wasOffline = false;
@@ -102,14 +149,29 @@ async function triggerDoor(doorKey, { pulseMs = config.doors.relayPulseMs, simul
   }
 
   const commandsPath = `/v1.0/iot-03/devices/${door.deviceId}/commands`;
+  let verdict = null;
 
   try {
     await tuya.request('POST', commandsPath, {
       commands: [{ code: door.dpCode, value: true }],
     });
+    // Timed from here, not from before the request: the relay is closed once
+    // the command lands, and the door expects to be held for pulseMs after
+    // that. Counting the request latency into the hold would quietly shorten
+    // every pulse.
+    const closedAt = Date.now();
     console.log(`[${door.label}] relay ON`);
 
-    await sleep(pulseMs);
+    // Look while the relay is still held closed - that is the only moment the
+    // device has anything to report. The remaining wait is trimmed by however
+    // long the read took, so verifying never lengthens the pulse.
+    if (config.doors.verifyPulse) {
+      await sleep(Math.min(config.doors.verifyDelayMs, pulseMs));
+      verdict = judgePulse(await readDoorState(doorKey));
+    }
+
+    const heldMs = Date.now() - closedAt;
+    if (heldMs < pulseMs) await sleep(pulseMs - heldMs);
 
     await tuya.request('POST', commandsPath, {
       commands: [{ code: door.dpCode, value: false }],
@@ -123,11 +185,34 @@ async function triggerDoor(doorKey, { pulseMs = config.doors.relayPulseMs, simul
     throw err;
   }
 
-  if (wasOffline) {
-    console.log(`[${door.label}] command sent to a door reading offline - unconfirmed`);
+  // The relay reporting the switch outranks the offline flag that preceded it:
+  // hardware describing itself beats a heartbeat that may simply be late.
+  if (verdict === 'switched') {
+    if (wasOffline) {
+      console.log(`[${door.label}] reported offline but the relay switched - flag was stale`);
+    }
+    return { simulated: false, unconfirmed: false, reason: null };
   }
 
-  return { simulated: false, wasOffline };
+  if (verdict === 'no_switch') {
+    console.warn(`[${door.label}] Tuya accepted the command but the relay never switched`);
+    return { simulated: false, unconfirmed: true, reason: 'relay_did_not_switch' };
+  }
+
+  if (verdict === 'offline') {
+    console.warn(`[${door.label}] gone by the time the pulse was checked`);
+    return { simulated: false, unconfirmed: true, reason: 'door_offline' };
+  }
+
+  // Unverifiable: the read failed, the response carried no switch state, or
+  // verification is turned off. Fall back to what the flag said - claiming an
+  // open we cannot see is the whole bug, but so is doubting every open on a
+  // door that has given us no reason to.
+  if (wasOffline) {
+    console.log(`[${door.label}] command sent to a door reading offline - unconfirmed`);
+    return { simulated: false, unconfirmed: true, reason: 'door_offline' };
+  }
+  return { simulated: false, unconfirmed: false, reason: null };
 }
 
-module.exports = { DOORS, listDoors, checkDoorOnline, triggerDoor };
+module.exports = { DOORS, listDoors, checkDoorOnline, readDoorState, triggerDoor };

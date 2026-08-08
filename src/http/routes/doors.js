@@ -82,26 +82,26 @@ router.post('/:door/open', async (req, res) => {
   }
 
   try {
-    const { simulated, wasOffline } = await triggerDoor(door, {
+    const { simulated, unconfirmed, reason } = await triggerDoor(door, {
       pulseMs: settings.relayPulseMs,
       simulate: settings.testMode,
     });
     const durationMs = Date.now() - startedAt;
 
-    // Sent to a door that was not answering. There is nobody standing at it to
-    // ask, so unlike the WhatsApp path this one just says so and leaves the
-    // row marked - an admin pressing the button can go and look.
-    if (wasOffline) {
+    // Nothing proved it opened. There is nobody standing at the door to ask, so
+    // unlike the WhatsApp path this one just says so and leaves the row marked -
+    // an admin pressing the button can go and look.
+    if (unconfirmed) {
       await AuditLog.create({
         ...base,
         decision: 'granted',
-        reason: 'door_offline_sent_blind',
+        reason: `sent_unconfirmed (${reason})`,
         durationMs,
         simulated,
         unconfirmed: true,
       });
       await reportDoorOffline({ door, label, settings, actor: 'Admin panel' });
-      return res.json({ ok: true, door, durationMs, simulated, unconfirmed: true });
+      return res.json({ ok: true, door, durationMs, simulated, unconfirmed: true, reason });
     }
 
     reportDoorOnline({ door, label, simulated });

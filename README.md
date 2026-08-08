@@ -24,28 +24,78 @@ Phase 1: the bot, the whitelist, the audit log and the panel.
 
 ## Offline doors
 
-Before pulsing, `triggerDoor()` asks Tuya whether the relay is reachable
-(`GET /v1.0/iot-03/devices/{id}` → `online`). A negative answer is re-checked
-once after `DOOR_OFFLINE_RECHECK_MS` (3s).
+**Tuya accepting a command is not evidence the door opened.** The cloud confirms
+it received the request; it never confirms the relay acted. It will happily
+accept a command for a device that is unplugged. Nor is a healthy `online` flag
+worth much: Tuya only marks a device offline after a heartbeat timeout, so for
+the minutes between a relay dying and Tuya noticing, every reading looks fine and
+every command is accepted. That window is where a confident "opened" is most
+likely to be a lie.
 
-**An offline reading never cancels the open.** Tuya's flag is heartbeat-based and
-lags reality by minutes in *both* directions, so refusing on it alone would lock
-members out of a door that works. The open is attempted regardless:
+So `triggerDoor()` gathers two pieces of evidence:
 
-- **It opens** → the flag was stale. Normal ✅, no alert, and the door is marked
-  healthy again. `triggerDoor` returns `recovered: true` for the log.
-- **It fails** → confirmed offline. The member gets the `door_offline` reply, the
-  audit row gets a `door_offline` reason, and the admin is alerted.
+1. **Before pulsing**, it asks whether the relay is reachable
+   (`GET /v1.0/iot-03/devices/{id}` → `online`). A negative answer is re-checked
+   once after `DOOR_OFFLINE_RECHECK_MS` (3s). This never cancels the open — the
+   flag lags in *both* directions, and refusing on it would lock members out of a
+   door that works.
+2. **During the pulse**, while the relay is still held closed, it reads the
+   device's own reported switch state back (`status[]` → `switch_1`). The
+   hardware describing itself is the only same-second evidence available, and it
+   outranks the heartbeat: a relay that reports the switch is a real open even if
+   the flag said offline a moment earlier.
 
-The check is the *diagnosis*, not the decision — which is why a failed status
-call (`checkDoorOnline` returns `null`) is treated as "don't know", never as
-offline.
+`triggerDoor` returns `{ simulated, unconfirmed, reason }`. `unconfirmed` means
+one thing — **nothing here proves the door opened** — with `reason` either
+`door_offline` or `relay_did_not_switch`. Callers must not report those as a
+plain success.
+
+Verification fails *soft*. A read that fails, or a device whose response carries
+no state for the switch, leaves the open reported as it was before: doubting
+every open on a device that told us nothing would be its own kind of wrong. Set
+`DOOR_VERIFY=off` if your relay reports too slowly to be caught inside the pulse
+— asking "did it open?" after opens that worked is worse than not asking.
+
+The reachability check is the *diagnosis*, not the decision — which is why a
+failed status call (`checkDoorOnline` returns `null`) is treated as "don't know",
+never as offline.
 
 A command that fails on its own is also classified offline if its Tuya error code
 is in `OFFLINE_ERROR_CODES`. That list is best-effort and unverified against a
-live device; nothing depends on it being right, because the status probe is the
-signal that actually decides. Being wrong there costs a generic error message
-instead of a specific one.
+live device; nothing depends on it being right. Being wrong there costs a generic
+error message instead of a specific one.
+
+### "Did it open?"
+
+When an open is unconfirmed, the member is the only reliable sensor — they are
+standing in front of the door. So the bot says so and asks:
+
+> 📡 La porte ne répond pas (sûrement hors ligne), mais j'ai quand même envoyé
+> l'ouverture. Est-ce qu'elle s'est ouverte ?
+
+The admin is alerted at that point, and the audit row is marked `unconfirmed`.
+Their answer then settles it (`src/whatsapp/confirmations.js`):
+
+- **yes** → the row becomes `confirmedOpen: true`, and the door is marked healthy
+  again. A person watching the door outranks the heartbeat.
+- **no** → the row is corrected from `granted` to `error`, and a second, stronger
+  alert goes out. This is the only hard proof of an outage the system can get, so
+  it escalates even if the door was already latched offline — once per outage.
+
+Answers are read in French, in darija in both Latin and Arabic script, and in
+arabizi (`wah`, `wa7`, `ma7abatch`). Held vowels fold (`waaaah` → `wah`), accents
+and harakat are stripped, and `merci`/`chokran` is trimmed off either end.
+
+Two properties matter more than coverage, and both are tested:
+
+- **The whole message must be the answer, not contain one.** `la` is darija for
+  no *and* French for "the" — matching a substring would read "la porte est
+  ouverte" exactly backwards.
+- **Anything unrecognised is ignored entirely** — no reply, no log. People talk
+  in these groups. The question just expires after five minutes.
+
+Only the person who was asked can answer, only in that chat, and the question is
+consumed on the first answer.
 
 ### Alerts
 

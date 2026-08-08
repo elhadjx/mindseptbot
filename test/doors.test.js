@@ -7,6 +7,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 // before anything below is loaded.
 process.env.DOOR_FRONT_DEVICE_ID = 'test-device';
 process.env.DOOR_OFFLINE_RECHECK_MS = '10';
+process.env.DOOR_VERIFY_DELAY_MS = '1';
 
 const Module = require('module');
 
@@ -25,6 +26,12 @@ const tuya = {
   commands: [],
   failCommandWith: null,
   failStatus: false,
+  // What the relay reports about its own switch. `true` once the ON command has
+  // landed is a device that really moved; leaving it false is one that didn't.
+  reportsSwitch: true,
+  // A device whose response carries no DP state at all - nothing to verify.
+  omitStatus: false,
+  switchState: false,
 };
 
 const push = { delivered: 0, sent: [] };
@@ -46,7 +53,9 @@ Module._load = function (request, parent, isMain) {
           if (method === 'GET') {
             tuya.statusCalls += 1;
             if (tuya.failStatus) throw new Error('network down');
-            return { online: tuya.onlineQueue.length ? tuya.onlineQueue.shift() : tuya.online };
+            const online = tuya.onlineQueue.length ? tuya.onlineQueue.shift() : tuya.online;
+            if (tuya.omitStatus) return { online };
+            return { online, status: [{ code: 'switch_1', value: tuya.switchState }] };
           }
           tuya.commands.push(body.commands[0].value);
           if (tuya.failCommandWith) {
@@ -54,6 +63,9 @@ Module._load = function (request, parent, isMain) {
             err.tuyaCode = tuya.failCommandWith;
             throw err;
           }
+          // A relay that acts on the command reports the new state back. One
+          // that has silently died keeps reporting whatever it last said.
+          if (tuya.reportsSwitch) tuya.switchState = body.commands[0].value;
           return {};
         }
       },
@@ -111,6 +123,9 @@ function reset() {
   tuya.commands = [];
   tuya.failCommandWith = null;
   tuya.failStatus = false;
+  tuya.reportsSwitch = true;
+  tuya.omitStatus = false;
+  tuya.switchState = false;
   push.delivered = 0;
   push.sent = [];
   whatsapp.ready = true;
@@ -130,17 +145,19 @@ async function main() {
 
   reset();
   let { result } = await attempt();
-  check('an online door opens after one status check', tuya.statusCalls === 1);
+  // Once before pulsing to see if it is reachable, once during to see whether
+  // it actually switched.
+  check('an online door is checked before and during the pulse', tuya.statusCalls === 2);
   check('the relay is pulsed on then off', JSON.stringify(tuya.commands) === '[true,false]');
-  check('an online open is not flagged offline', result.wasOffline === false);
+  check('a relay that reports the switch is a confirmed open', result.unconfirmed === false);
 
   reset();
   // Down on the first look, up on the second: the gap-in-the-heartbeat case the
   // re-check exists for.
   tuya.onlineQueue = [false, true];
   ({ result } = await attempt());
-  check('a door that answers on the re-check is checked twice', tuya.statusCalls === 2);
-  check('recovering on the re-check is not treated as an outage', result.wasOffline === false);
+  check('a door that answers on the re-check is checked twice first', tuya.statusCalls === 3);
+  check('recovering on the re-check is not treated as an outage', result.unconfirmed === false);
   check('it still opens', JSON.stringify(tuya.commands) === '[true,false]');
 
   reset();
@@ -149,13 +166,32 @@ async function main() {
   check('a door offline twice is still attempted', JSON.stringify(tuya.commands) === '[true,false]');
   // Tuya acknowledges commands for unplugged devices, so the call coming back
   // clean is not evidence of an open. It must say so rather than claim one.
-  check('a command sent to an offline door is flagged unconfirmed', result.wasOffline === true);
-  check('and it is never reported as recovered', result.recovered === undefined);
+  check('a command sent to an offline door is unconfirmed', result.unconfirmed === true);
+  check('  and says why', result.reason === 'door_offline', result.reason);
+
+  console.log('\n-- the lie the offline flag cannot catch --');
+
+  // The window this exists for: Tuya still reports the device as online,
+  // because it only gives up after a heartbeat timeout, and it accepts the
+  // command happily. The relay is the only thing that knows it never moved.
+  reset();
+  tuya.reportsSwitch = false;
+  ({ result } = await attempt());
+  check('a relay that never switches is still commanded', JSON.stringify(tuya.commands) === '[true,false]');
+  check('an accepted command is not an open', result.unconfirmed === true);
+  check('  and names the relay, not the connection', result.reason === 'relay_did_not_switch', result.reason);
+
+  // Fail soft: doubting every open on a device that told us nothing would be
+  // its own kind of wrong.
+  reset();
+  tuya.omitStatus = true;
+  ({ result } = await attempt());
+  check('a device reporting no switch state is left alone', result.unconfirmed === false);
 
   reset();
   tuya.failStatus = true;
   ({ result } = await attempt());
-  check('a failed status call is not read as offline', tuya.statusCalls === 1);
+  check('a failed status call is not read as offline', result.unconfirmed === false);
   check('and the open proceeds', JSON.stringify(tuya.commands) === '[true,false]');
 
   reset();

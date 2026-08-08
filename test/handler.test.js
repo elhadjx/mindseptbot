@@ -10,8 +10,10 @@ const alertPath = path.resolve(__dirname, '../src/doors/offline-alert.js');
 const opens = [];
 const simulatedOpens = [];
 
-// The door reads offline, so the command goes out blind. Flipped per scenario.
-const door = { offline: false };
+// Nothing proved the door opened - it was offline, or the relay never reported
+// switching. Which of the two is the door service's business, not the
+// handler's; here it only decides whether to ask. Flipped per scenario.
+const door = { unconfirmed: false, reason: 'door_offline' };
 // Which way the alert module was called, without dragging push and WhatsApp in.
 const alerts = { offline: [], confirmed: [], online: [] };
 
@@ -34,10 +36,14 @@ Module._load = function (request, parent, isMain) {
       triggerDoor: async (key, { simulate = false } = {}) => {
         if (simulate) {
           simulatedOpens.push(key);
-          return { simulated: true, wasOffline: false };
+          return { simulated: true, unconfirmed: false, reason: null };
         }
         opens.push(key);
-        return { simulated: false, wasOffline: door.offline };
+        return {
+          simulated: false,
+          unconfirmed: door.unconfirmed,
+          reason: door.unconfirmed ? door.reason : null,
+        };
       },
     };
   }
@@ -289,7 +295,7 @@ async function main() {
   console.log('\n-- the door was offline, so we ask --');
   rateLimiter.reset();
   confirmations.reset();
-  door.offline = true;
+  door.unconfirmed = true;
   const blindOpensBefore = opens.length;
   // Earlier sections opened the door for real, so measure from here.
   const onlineBefore = alerts.online.length;
@@ -346,7 +352,7 @@ async function main() {
   check('  the outage is escalated as confirmed', alerts.confirmed.length === 1);
   check('  by name', alerts.confirmed[0]?.actor === 'Allowed Person', alerts.confirmed[0]?.actor);
 
-  door.offline = false;
+  door.unconfirmed = false;
   confirmations.reset();
 
   console.log('\n-- direct messages --');

@@ -1,5 +1,28 @@
 import { useEffect, useState } from 'react';
 
+/**
+ * The letters standing in for a profile picture nobody set, or that privacy
+ * settings hide from us. Shared by the chat list and the Connection screen.
+ */
+export function initials(name) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return '?';
+  // Someone with no name saved is shown as their number, and the first
+  // characters of that are a "+" and a country code every neighbour in the
+  // group shares. The last two digits at least tell them apart.
+  if (!/\p{L}/u.test(trimmed)) {
+    const digits = trimmed.replace(/\D/g, '');
+    return digits ? digits.slice(-2) : '?';
+  }
+  // Skip the separators people decorate a contact name with - "Amina ·
+  // voisine" is AV, not A·.
+  const parts = trimmed
+    .split(/\s+/)
+    .filter((p) => /^[\p{L}\p{N}]/u.test(p))
+    .slice(0, 2);
+  return parts.map((p) => p[0].toUpperCase()).join('') || '?';
+}
+
 export function Card({ title, hint, actions, children, className = '' }) {
   return (
     <section className={`card ${className}`}>

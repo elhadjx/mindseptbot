@@ -12,7 +12,7 @@ const { mapMessage, chatIdFor } = require('./messages');
 const state = {
   status: 'starting', // starting | qr | authenticated | ready | disconnected | auth_failure
   qrDataUrl: null,
-  me: null, // { pushname, phone }
+  me: null, // { pushname, phone, wid }
   lastReadyAt: null,
   lastSessionSavedAt: null,
   // RemoteAuth does not write the session to Mongo until 60s after the first
@@ -125,8 +125,14 @@ function wireEvents(instance) {
       qrDataUrl: null,
       lastReadyAt: new Date().toISOString(),
       lastError: null,
+      // `wid` is the linked account's own JID - the panel asks the avatar
+      // endpoint for it to show the account's picture where the QR used to be.
       me: instance.info
-        ? { pushname: instance.info.pushname, phone: instance.info.wid?.user || null }
+        ? {
+            pushname: instance.info.pushname,
+            phone: instance.info.wid?.user || null,
+            wid: instance.info.wid?._serialized || null,
+          }
         : null,
     });
     console.log('[wa] ready');

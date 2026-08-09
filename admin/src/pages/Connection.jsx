@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
-import { Card, DoorStatus, Flash, useFlash, formatDateTime } from '../components/ui';
+import { Card, DoorStatus, Flash, initials, useFlash, formatDateTime } from '../components/ui';
 
 const STATUS_COPY = {
   starting: { label: 'Starting up', seed: 'pending', hint: 'Booting the WhatsApp client…' },
@@ -18,6 +18,33 @@ const UNCONFIRMED = {
   relay_did_not_switch:
     'Tuya accepted the command, but the relay never reported switching — the door probably did not open.',
 };
+
+/**
+ * Once the number is linked there is no code left to scan, so the bubble shows
+ * whose account is answering instead. Initials are the resting state rather
+ * than a fallback bolted on: an account can have no picture, or hide it, and a
+ * broken image icon there would read as a broken link.
+ */
+function LinkedFace({ me }) {
+  const [failed, setFailed] = useState(false);
+  const name = me.pushname || (me.phone ? `+${me.phone}` : '');
+
+  if (failed || !me.wid) {
+    return (
+      <span className="qr-frame__face qr-frame__face--initials" aria-hidden="true">
+        {initials(name)}
+      </span>
+    );
+  }
+  return (
+    <img
+      className="qr-frame__face"
+      src={api.chatAvatarUrl(me.wid)}
+      alt={name ? `Profile picture of ${name}` : 'Profile picture of the linked account'}
+      onError={() => setFailed(true)}
+    />
+  );
+}
 
 export default function Connection({ state, doors, offlineDoors }) {
   const [flash, setFlash] = useFlash();
@@ -81,13 +108,13 @@ export default function Connection({ state, doors, offlineDoors }) {
         <div className="qr-panel">
           <div className="qr-frame">
             {state.qrDataUrl ? (
-              <img src={state.qrDataUrl} alt="WhatsApp linking QR code" />
+              <img className="qr-frame__code" src={state.qrDataUrl} alt="WhatsApp linking QR code" />
+            ) : state.status === 'ready' && state.me ? (
+              // Keyed so re-linking a different number starts the picture
+              // lookup over rather than inheriting the previous one's failure.
+              <LinkedFace me={state.me} key={state.me.wid || state.me.phone} />
             ) : (
-              <p className="qr-frame__placeholder">
-                {state.status === 'ready'
-                  ? 'Linked — no code needed.'
-                  : 'Waiting for a code…'}
-              </p>
+              <p className="qr-frame__placeholder">Waiting for a code…</p>
             )}
           </div>
 

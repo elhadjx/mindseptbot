@@ -274,7 +274,7 @@
   background: var(--clr-granted-wash);
 }
 
-.qr-frame img {
+.qr-frame__code {
   position: relative;
   width: 100%;
   max-width: 240px;
@@ -282,6 +282,44 @@
   box-shadow: var(--sh-2);
   background: #fff;
   padding: var(--sp-2);
+}
+
+/* The linked account's picture takes the place of the code, and takes the
+   blob's shape too - same radii, same 18s cycle, so it morphs in step with the
+   wash behind it instead of sitting on top as a foreign circle. It stays
+   narrower than the frame so a ring of that wash still shows around it. */
+.qr-frame__face {
+  position: relative;
+  width: 78%;
+  /* The frame is a full-width square once the panel drops to one column on a
+     phone; the code was capped the same way. */
+  max-width: 240px;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: var(--r-blob);
+  animation: drift 18s var(--ease-settle) infinite;
+  box-shadow: var(--sh-2);
+  background: var(--clr-surface);
+}
+
+.qr-frame__face--initials {
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-size: 2.5rem;
+  color: var(--clr-text-soft);
+  letter-spacing: 0.02em;
+}
+
+/* A shape that morphs while someone is reading the status beside it is
+   decoration, not information. The `--dur` overrides in tokens.css don't reach
+   these two - the drift cycle is a literal 18s - and stopping only one of them
+   would leave the picture still against a moving edge. */
+@media (prefers-reduced-motion: reduce) {
+  .qr-frame::before,
+  .qr-frame__face {
+    animation: none;
+  }
 }
 
 .qr-frame__placeholder {

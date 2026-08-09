@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
-import { Empty, Flash, useFlash } from '../components/ui';
+import { Empty, Flash, initials, useFlash } from '../components/ui';
 import { makeSearch } from '../lib/search';
 import {
   ArrowLeftIcon,
@@ -28,25 +28,6 @@ function previewText(last) {
   if (!last) return '';
   const body = last.hasMedia ? MEDIA_PREVIEW[last.type] || '📎 Attachment' : last.body || '';
   return last.fromMe ? `You: ${body}` : body;
-}
-
-function initials(name) {
-  const trimmed = String(name || '').trim();
-  if (!trimmed) return '?';
-  // Someone with no name saved is shown as their number, and the first
-  // characters of that are a "+" and a country code every neighbour in the
-  // group shares. The last two digits at least tell them apart.
-  if (!/\p{L}/u.test(trimmed)) {
-    const digits = trimmed.replace(/\D/g, '');
-    return digits ? digits.slice(-2) : '?';
-  }
-  // Skip the separators people decorate a contact name with - "Amina ·
-  // voisine" is AV, not A·.
-  const parts = trimmed
-    .split(/\s+/)
-    .filter((p) => /^[\p{L}\p{N}]/u.test(p))
-    .slice(0, 2);
-  return parts.map((p) => p[0].toUpperCase()).join('') || '?';
 }
 
 /**

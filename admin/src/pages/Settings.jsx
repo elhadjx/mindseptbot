@@ -145,7 +145,7 @@ export default function Settings({
   // Reachability is probed on demand, not streamed, so the reading the panel
   // holds was taken whenever it last asked - at sign-in, for a tab left open
   // all day. Ask again on arriving here, and leave the admin a button for the
-  // rest. No interval: every probe is a Tuya call and they are rate limited.
+  // rest. No interval: every probe is a provider call and may be rate limited.
   const [checkingDoors, setCheckingDoors] = useState(false);
   useEffect(() => {
     onRefreshDoors?.().catch(() => {});
@@ -489,7 +489,7 @@ export default function Settings({
 
       <Card
         title="Doors"
-        hint="Whether the relay is answering Tuya. The reading is a heartbeat and can lag a minute or two behind the real thing, so an open is still attempted on a door showing offline."
+        hint="Whether the relay is answering through the configured provider. The reading can lag behind the real thing, so an open is still attempted on a door showing offline."
         actions={
           <button
             type="button"

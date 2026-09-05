@@ -37,6 +37,7 @@ function assertConfigured() {
 }
 
 const isProd = process.env.NODE_ENV === 'production';
+const doorProvider = process.env.DOOR_PROVIDER || 'tuya';
 
 const config = {
   isProd,
@@ -62,28 +63,58 @@ const config = {
   },
 
   tuya: {
-    accessId: required('TUYA_ACCESS_ID'),
-    accessSecret: required('TUYA_ACCESS_SECRET'),
+    // Keep the old provider available during cutover, but do not require its
+    // expired cloud credentials when Home Assistant owns door control.
+    accessId: doorProvider === 'tuya' ? required('TUYA_ACCESS_ID') : process.env.TUYA_ACCESS_ID,
+    accessSecret:
+      doorProvider === 'tuya' ? required('TUYA_ACCESS_SECRET') : process.env.TUYA_ACCESS_SECRET,
     region: process.env.TUYA_REGION || 'eu',
   },
 
+  homeAssistant: {
+    baseUrl: process.env.HOME_ASSISTANT_URL || 'http://127.0.0.1:8123',
+    accessToken:
+      doorProvider === 'home_assistant'
+        ? required('HOME_ASSISTANT_TOKEN')
+        : process.env.HOME_ASSISTANT_TOKEN,
+    timeoutMs: Number(process.env.HOME_ASSISTANT_TIMEOUT_MS) || 5000,
+  },
+
+  bridge: {
+    // Railway and the Windows door agent share only this narrow credential.
+    // The Home Assistant token never leaves the building PC.
+    token:
+      doorProvider === 'bridge'
+        ? required('DOOR_BRIDGE_TOKEN')
+        : process.env.DOOR_BRIDGE_TOKEN,
+    agentId: process.env.DOOR_BRIDGE_AGENT_ID || 'building-pc',
+    heartbeatTtlMs: Number(process.env.BRIDGE_HEARTBEAT_TTL_MS) || 45000,
+    claimTimeoutMs: Number(process.env.BRIDGE_CLAIM_TIMEOUT_MS) || 5000,
+    resultTimeoutMs: Number(process.env.BRIDGE_RESULT_TIMEOUT_MS) || 30000,
+    pollWaitMs: Number(process.env.BRIDGE_POLL_WAIT_MS) || 20000,
+  },
+
   doors: {
+    provider: doorProvider,
     frontDeviceId: process.env.DOOR_FRONT_DEVICE_ID,
+    frontHomeAssistantEntityId: process.env.HOME_ASSISTANT_FRONT_ENTITY_ID,
     relayPulseMs: Number(process.env.RELAY_PULSE_MS) || 1000,
-    // Tuya marks a device offline on a heartbeat timeout, so a single "offline"
-    // reading is often just a gap. Wait this long and ask once more before
-    // believing it.
+    // A single "offline" reading can be a short network gap. Wait this long
+    // and ask once more before believing it.
     offlineRecheckMs: Number(process.env.DOOR_OFFLINE_RECHECK_MS) || 3000,
 
     // After pulsing, read the relay's own reported state back to see whether it
-    // actually switched. Tuya acknowledges commands for a device that is no
-    // longer there, and its offline flag lags by minutes, so this readback is
-    // the only same-second evidence an open really happened.
+    // actually switched. Provider acknowledgements do not prove the physical
+    // relay moved, so this readback is the best same-second evidence available.
     //
-    // Set DOOR_VERIFY=off if the relay reports too slowly to be caught inside
-    // the pulse - that would have it asking "did it open?" after opens that
-    // worked, which is worse than not asking.
-    verifyPulse: process.env.DOOR_VERIFY !== 'off',
+    // Home Assistant's Tuya state is cloud-pushed and arrived after the pulse
+    // in the live building test, so it defaults off there to avoid false
+    // failures. The direct Tuya provider keeps its previous default. Either can
+    // be overridden explicitly.
+    verifyPulse:
+      process.env.DOOR_VERIFY === undefined
+        ? doorProvider !== 'home_assistant'
+        : process.env.DOOR_VERIFY !== 'off',
     // How long to let the device report the change before looking. Kept inside
     // the pulse, so verifying does not hold the relay closed any longer.
     verifyDelayMs: Number(process.env.DOOR_VERIFY_DELAY_MS) || 500,

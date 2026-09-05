@@ -8,6 +8,7 @@ const { createApp } = require('./http/app');
 const { startWhatsApp, stopWhatsApp, getClient } = require('./whatsapp/client');
 const { handleMessage } = require('./whatsapp/handlers');
 const { startMessageAlerts } = require('./notify/message-alert');
+const { initializeDoors } = require('./doors/door-service');
 
 // RemoteAuth runs its periodic backup as `setInterval(async () => ...)` with no
 // catch of its own, so a single failed backup becomes an unhandled rejection -
@@ -25,6 +26,11 @@ function installCrashGuards() {
 
 async function main() {
   installCrashGuards();
+
+  // If the process died after switching the relay on, make the first local
+  // action after restart an explicit OFF. Do this before Mongo connects so a
+  // database outage cannot leave the relay energised.
+  await initializeDoors();
 
   await connectMongo();
   const settings = await Settings.load();

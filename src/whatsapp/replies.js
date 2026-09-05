@@ -27,7 +27,7 @@ const OUTCOMES = [
   {
     key: 'confirm_opened',
     label: 'Member said it opened',
-    hint: 'Their answer to the question above was yes. The door works, whatever Tuya thinks.',
+    hint: 'Their answer to the question above was yes. The door works, whatever the provider reports.',
     emoji: '👍',
     text: 'Parfait, merci — je note que la porte marche.',
   },

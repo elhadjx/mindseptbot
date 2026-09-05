@@ -1,0 +1,13 @@
+FROM node:20-alpine
+
+ENV NODE_ENV=production
+WORKDIR /app
+
+# The Windows agent has no npm dependencies, browser, database, or admin UI.
+# It only needs Node's built-in fetch plus these three small modules.
+COPY --chown=node:node src/doors/home-assistant.js ./src/doors/home-assistant.js
+COPY --chown=node:node src/bridge/agent.js ./src/bridge/agent.js
+COPY --chown=node:node src/bridge/local-door.js ./src/bridge/local-door.js
+
+USER node
+CMD ["node", "src/bridge/agent.js"]

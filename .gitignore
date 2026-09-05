@@ -5,8 +5,12 @@ admin/dist/
 # Every .env variant, including stray names like ".env " and ".env.local".
 .env*
 !.env.example
+!.env.bridge.example
 
 # whatsapp-web.js scratch dirs. The real session lives in Mongo via RemoteAuth,
 # but these hold a copy on disk and must never be committed.
 .wwebjs_auth/
 .wwebjs_cache/
+
+# Persistent Home Assistant state created by compose.home-assistant.yml.
+.home-assistant/

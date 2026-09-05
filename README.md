@@ -6,8 +6,10 @@ Mindsept door access — a WhatsApp bot plus an admin panel that lets whiteliste
 coworkers open the coworking space's front door themselves, without a manager
 having to do it from the SmartLife app.
 
-Phase 0 (prove the Tuya relay can be triggered from a webpage) is done. This is
-Phase 1: the bot, the whitelist, the audit log and the panel.
+Phase 0 (prove the relay can be triggered from a webpage) is done. This is
+Phase 1: the bot, the whitelist, the audit log and the panel. Production keeps
+that application on Railway and delegates each door pulse to a small Windows
+agent beside Home Assistant. The legacy Tuya IoT Core API remains a rollback.
 
 ## How it works
 
@@ -18,29 +20,30 @@ Phase 1: the bot, the whitelist, the audit log and the panel.
 2. The bot — a `whatsapp-web.js` client running headless Chromium — sees the message,
    identifies the sender, and checks them against a whitelist in MongoDB.
 3. On success it checks the relay is reachable, then pulses the front door relay
-   through the Tuya Cloud API and reacts ✅ to the message. Denials get ⛔,
+   through the configured provider and reacts ✅ to the message. Denials get ⛔,
    failures ⚠️, an unreachable door 📡.
 4. Every attempt, granted or not, is written to an audit log the panel can filter.
 
 ## Offline doors
 
-**Tuya accepting a command is not evidence the door opened.** The cloud confirms
-it received the request; it never confirms the relay acted. It will happily
-accept a command for a device that is unplugged. Nor is a healthy `online` flag
-worth much: Tuya only marks a device offline after a heartbeat timeout, so for
-the minutes between a relay dying and Tuya noticing, every reading looks fine and
-every command is accepted. That window is where a confident "opened" is most
-likely to be a lie.
+**A provider accepting a command is not evidence the door opened.** It confirms
+that the request was accepted, not that the relay acted. Both Home Assistant's
+Tuya integration and the legacy direct API ultimately cross Tuya's consumer
+cloud, so state can lag the physical relay. That window is where a confident
+"opened" is most likely to be a lie.
 
-So `triggerDoor()` gathers two pieces of evidence:
+For direct Home Assistant and Tuya providers, `triggerDoor()` gathers two pieces
+of evidence:
 
 1. **Before pulsing**, it asks whether the relay is reachable
-   (`GET /v1.0/iot-03/devices/{id}` → `online`). A negative answer is re-checked
+   (the Windows agent heartbeat, Home Assistant entity state, or Tuya's device
+   `online` flag). A negative answer is re-checked
    once after `DOOR_OFFLINE_RECHECK_MS` (3s). This never cancels the open — the
    flag lags in *both* directions, and refusing on it would lock members out of a
    door that works.
 2. **During the pulse**, while the relay is still held closed, it reads the
-   device's own reported switch state back (`status[]` → `switch_1`). The
+   device's own reported switch state back (`on` in Home Assistant, or
+   `status[]` → `switch_1` in Tuya). The
    hardware describing itself is the only same-second evidence available, and it
    outranks the heartbeat: a relay that reports the switch is a real open even if
    the flag said offline a moment earlier.
@@ -50,20 +53,27 @@ one thing — **nothing here proves the door opened** — with `reason` either
 `door_offline` or `relay_did_not_switch`. Callers must not report those as a
 plain success.
 
-Verification fails *soft*. A read that fails, or a device whose response carries
-no state for the switch, leaves the open reported as it was before: doubting
-every open on a device that told us nothing would be its own kind of wrong. Set
-`DOOR_VERIFY=off` if your relay reports too slowly to be caught inside the pulse
-— asking "did it open?" after opens that worked is worse than not asking.
+Verification fails *soft*. A read that fails, times out before the pulse ends,
+or carries no switch state leaves the open reported as it was before: doubting
+every open on a device that told us nothing would be its own kind of wrong. The
+read is raced against the pulse deadline, so it can never delay the safety OFF
+command. Home Assistant defaults `DOOR_VERIFY` off because the building's live
+Tuya state arrived after the one-second pulse; the direct Tuya provider defaults
+it on. Either can be overridden explicitly.
+
+The production bridge instead combines a fresh Windows-agent heartbeat with the
+result of the complete local ON/OFF operation. It does not wait for an in-pulse
+state read: this building's Tuya-backed Home Assistant state arrived after the
+one-second pulse in testing, so waiting for it would delay the safety OFF.
 
 The reachability check is the *diagnosis*, not the decision — which is why a
 failed status call (`checkDoorOnline` returns `null`) is treated as "don't know",
 never as offline.
 
-A command that fails on its own is also classified offline if its Tuya error code
-is in `OFFLINE_ERROR_CODES`. That list is best-effort and unverified against a
-live device; nothing depends on it being right. Being wrong there costs a generic
-error message instead of a specific one.
+A command that fails on its own is also classified offline when the provider is
+unreachable. The legacy Tuya driver additionally recognises its known offline
+error codes; being wrong there costs a generic error message instead of a
+specific one.
 
 ### "Did it open?"
 
@@ -191,10 +201,11 @@ from. A lost phone is revoked by changing the panel password.
 - **JS/TS only. No Python anywhere in this repo.**
 - Node/Express backend (CommonJS). React + Vite admin panel (ESM) — the only
   build step in the repo.
-- Door control goes through the **Tuya Cloud API** (`/v1.0/token`,
-  `/v1.0/iot-03/devices/{id}/commands`), signed directly with Node's built-in
-  `crypto`/`fetch` (`src/doors/tuya-cloud.js`) — deliberately not the official
-  `@tuya/tuya-connector-nodejs` SDK, which pulls a vulnerable, unpatched `axios`.
+- Production door control uses an **outbound reverse bridge**. A lightweight
+  Windows agent long-polls Railway, then calls Home Assistant on the same Docker
+  network. Railway never needs the PC's IP, no LAN port is exposed, and the Home
+  Assistant token never leaves the building. Direct Home Assistant and legacy
+  Tuya IoT Core providers remain available for development and rollback.
 - WhatsApp session persistence uses `RemoteAuth` with our own GridFS store
   (`src/whatsapp/mongo-session-store.js`), so the session survives Railway's
   ephemeral filesystem. See below for why this isn't `wwebjs-mongo`.
@@ -209,7 +220,8 @@ src/
   db/models/            User (whitelist), AuditLog, Settings, Credentials (singletons),
                         PushSubscription (browsers opted into alerts)
   security/             passwords.js - scrypt hashing for the panel login
-  doors/                tuya-cloud.js (Phase 0, unchanged), door-service.js,
+  bridge/               Railway coordinator + lightweight Windows door agent
+  doors/                home-assistant.js, tuya-cloud.js (legacy), door-service.js,
                         offline-alert.js (one alert per outage, not per attempt)
   notify/               push.js - Web Push fan-out, prunes dead subscriptions
   whatsapp/             client.js, identity.js, phone.js, command-router.js,
@@ -220,7 +232,10 @@ admin/public/sw.js      service worker - shows pushed alerts, no caching
 admin/public/manifest.webmanifest   PWA manifest + icons, so it installs to a
                         home screen (required for push on iOS)
 test/handler.test.js    end-to-end tests for the authorization pipeline
-test/doors.test.js      reachability check, retry, failure classification, alert dedupe
+test/doors.test.js      legacy Tuya provider, reachability and alert dedupe
+test/home-assistant*.test.js  REST client and Home Assistant door provider
+test/bridge*.test.js    reverse bridge coordination and provider behavior
+test/local-door-agent.test.js  local pulse safety and job deduplication
 test/phone.test.js      phone number normalisation rules
 ```
 
@@ -294,7 +309,7 @@ Notes:
 ## Test mode
 
 Settings → Test mode runs the entire pipeline — group scope, whitelist, rate
-limits, replies, audit log — but never sends the Tuya command. Use it to try the
+limits, replies, audit log — but never sends the door command. Use it to try the
 bot out without opening a real door onto the street.
 
 The check lives inside `triggerDoor()` (`src/doors/door-service.js`), not in its
@@ -405,10 +420,125 @@ only as a fallback. Covered by `test/groups.test.js`.
    `disconnected`, so reconnecting requires building a **new** `Client` — you
    cannot re-`initialize()` the old one.
 
+## Production architecture: Railway + Windows door agent
+
+The WhatsApp bot, panel, authorization, audit history and MongoDB stay on
+Railway. A small agent runs beside Home Assistant on the building's Windows PC.
+The agent makes an outbound HTTPS long-poll to Railway; Railway answers that
+already-open request when it has a door command. The PC therefore needs no
+fixed IP, port forwarding, VPN or public HTTP server.
+
+```text
+WhatsApp -> Railway bot -> short-lived, single-claim job
+                              ^
+                    outbound HTTPS long-poll
+                              v
+                    Windows agent -> Home Assistant -> Smart Life relay
+```
+
+The job carries only `front` and a pulse duration bounded to 100–2000 ms. ON
+and OFF are one local operation — they are never separate internet messages.
+A claimed job is never dispatched again, even if its result is lost, because a
+missed open is safer than an accidental second pulse. The local process also
+sends OFF on startup and after every attempted ON.
+
+This avoids the paid IoT Core developer subscription. It is not fully offline:
+the agent needs Railway, and Home Assistant's Tuya integration still needs
+Tuya's consumer cloud. A Zigbee coordinator is the upgrade path for true local
+control.
+
+### 1. Configure Railway
+
+Generate one random 32-byte bridge secret. On PowerShell:
+
+```powershell
+$b=[byte[]]::new(32); $r=[Security.Cryptography.RandomNumberGenerator]::Create(); $r.GetBytes($b); -join ($b|%{$_.ToString('x2')})
+```
+
+Set these variables on the existing Railway bot:
+
+```dotenv
+DOOR_PROVIDER=bridge
+DOOR_BRIDGE_TOKEN=the-random-value
+DOOR_BRIDGE_AGENT_ID=building-pc
+```
+
+Keep the existing MongoDB, WhatsApp and admin variables unchanged. Do not put
+the Home Assistant token on Railway. Deploy the bridge-capable code only after
+the Windows agent configuration below is ready; the agent can safely retry
+while Railway is still running the old version.
+
+### 2. Prepare the Windows PC
+
+The PC runs two containers from `compose.windows.yml`: Home Assistant and a
+dependency-free Node door agent. The agent has no Chromium, MongoDB or admin UI
+and is small compared with Home Assistant. Install Docker Desktop, enable its
+WSL 2 engine, configure Docker Desktop to start when the building user signs
+in, and prevent the PC from sleeping while it is responsible for the door.
+
+From PowerShell in this repository:
+
+```powershell
+Copy-Item .env.bridge.example .env.bridge
+docker compose -f compose.windows.yml up -d home-assistant
+```
+
+Open <http://localhost:8123>, create the local Home Assistant account, then add
+**Settings → Devices & services → Tuya**. In Smart Life, find **Me → Settings →
+Account and Security → User Code**, enter it in Home Assistant, and scan the QR
+code. Verify the front relay while someone is physically at the door. Its known
+entity ID is `switch.porte_immeuble_switch_1`.
+
+In **Profile → Security**, create a Long-Lived Access Token. Then:
+
+```powershell
+notepad .env.bridge
+```
+
+Set the Railway URL, the same bridge secret, and the new Home Assistant token:
+
+```dotenv
+BRIDGE_SERVER_URL=https://your-service.up.railway.app
+DOOR_BRIDGE_TOKEN=the-same-random-value
+DOOR_BRIDGE_AGENT_ID=building-pc
+HOME_ASSISTANT_URL=http://home-assistant:8123
+HOME_ASSISTANT_TOKEN=the-windows-home-assistant-token
+HOME_ASSISTANT_FRONT_ENTITY_ID=switch.porte_immeuble_switch_1
+```
+
+`.env.bridge` is ignored by Git and is loaded only into the local agent. Start
+the complete Windows stack:
+
+```powershell
+docker compose -f compose.windows.yml up -d --build
+docker compose -f compose.windows.yml logs -f door-agent
+```
+
+The log should show `startup safety: relay OFF`. Within one long-poll cycle the
+Railway panel will show the front door online. Test from the panel with someone
+at the physical door before relying on WhatsApp commands.
+
+For a PC where Home Assistant already runs outside this Compose project, the
+agent can instead run directly under Node 20 with `npm run start:door-agent`;
+set `HOME_ASSISTANT_URL=http://127.0.0.1:8123` in `.env.bridge`.
+
+### Bridge security and failure behavior
+
+- The bridge endpoint accepts only the shared bearer token and expected agent
+  ID. Use a unique token of at least 32 random bytes and never put it in Git.
+- Heartbeats expire after 45 seconds. If the PC, Docker, Home Assistant or the
+  internet is down, Railway classifies the door as offline and uses the existing
+  member/admin alert flow.
+- An unclaimed job expires after 5 seconds. A claimed job has 30 seconds to
+  report its result and is never automatically delivered twice.
+- The local agent rejects unknown doors and pulse durations outside 100–2000 ms.
+- The Home Assistant token stays on the Windows PC; only the success/failure and
+  door availability state return to Railway.
+
 ## Setup
 
 ```bash
-cp .env.example .env      # fill in Tuya creds, Mongo URI, admin password
+cp .env.example .env      # fill in Mongo, admin, and the chosen door provider
 npm install
 npm run build             # builds the admin panel into admin/dist
 npm start
@@ -437,7 +567,19 @@ Run the tests — the session store round-trip and the authorization pipeline
 MONGODB_URI=mongodb://localhost:27017/mindsept-test npm test
 ```
 
-## Deployment (Railway)
+## Single-machine development fallback
+
+`compose.home-assistant.yml` runs Home Assistant alone on macOS/Linux for local
+development. Set `DOOR_PROVIDER=home_assistant` plus the local URL, token and
+entity in `.env`, then run the full bot with `npm start`. This is the path used
+for the first successful physical test, not the intended Windows/Railway split.
+
+Do not run that local full bot at the same time as Railway. Two WhatsApp
+processes create a conflict and can delete the saved RemoteAuth session. The
+Windows `door-agent` is safe to run alongside Railway because it contains no
+WhatsApp client.
+
+## Railway bot deployment
 
 Use the `Dockerfile`, not Nixpacks — `whatsapp-web.js` drives a real browser and
 the image installs Debian's `chromium` for it.
@@ -475,11 +617,11 @@ the image installs Debian's `chromium` for it.
 
 - Mindsept (coworking space) has two doors on one Tuya-based Zigbee gateway: the
   front door (residency) and the inner door (coworking space).
-- Tuya Cloud API credentials (Access ID/Secret) come from the Tuya IoT Platform's
-  Cloud Project (Cloud → [project] → Overview). Device IDs come from the project's
-  linked device list. These are setup steps outside this repo.
+- The original provider used Tuya Cloud API credentials from the IoT Platform's
+  Cloud Project. That provider is retained only as a rollback path because its
+  IoT Core trial expired.
 
-## Local control attempt (abandoned in Phase 0)
+## Direct LAN control attempt (abandoned in Phase 0)
 
 Local control (`tuyapi`, LAN-only, no cloud dependency) was the original plan and
 is still preferable long-term — it removes any dependency on Tuya's servers. It
@@ -505,7 +647,6 @@ was abandoned because:
   Lock unlock flow (a provisioned per-user credential, not a stateless command),
   which needs its own investigation. The front door works today; the inner door
   intentionally returns an "unsupported" error until this is implemented.
-- Home Assistant middleware.
 - Per-admin panel accounts.
 
 ## Resolved questions

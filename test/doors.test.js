@@ -6,6 +6,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 // the suite. Both are read by config.js at require time, so they must be set
 // before anything below is loaded.
 process.env.DOOR_FRONT_DEVICE_ID = 'test-device';
+process.env.DOOR_PROVIDER = 'tuya';
 process.env.DOOR_OFFLINE_RECHECK_MS = '10';
 process.env.DOOR_VERIFY_DELAY_MS = '1';
 
@@ -134,7 +135,7 @@ function reset() {
 
 async function attempt(options = {}) {
   try {
-    return { result: await triggerDoor('front', { pulseMs: 1, ...options }) };
+    return { result: await triggerDoor('front', { pulseMs: 10, ...options }) };
   } catch (err) {
     return { err };
   }

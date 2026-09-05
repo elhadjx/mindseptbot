@@ -13,6 +13,7 @@ const settingsRoutes = require('./routes/settings');
 const doorRoutes = require('./routes/doors');
 const messageRoutes = require('./routes/messages');
 const pushRoutes = require('./routes/push');
+const bridgeRoutes = require('./routes/bridge');
 
 const ADMIN_DIST = path.join(__dirname, '..', '..', 'admin', 'dist');
 
@@ -26,6 +27,11 @@ function createApp() {
   app.use(cookieParser());
 
   app.get('/healthz', (req, res) => res.json({ ok: true }));
+
+  // The Windows door agent authenticates with its own bearer token, not an
+  // admin-panel cookie. It polls outward from the LAN, so no inbound port or
+  // tunnel is opened at the building.
+  app.use('/internal/door-bridge', bridgeRoutes);
 
   app.use('/api/auth', authRoutes);
 

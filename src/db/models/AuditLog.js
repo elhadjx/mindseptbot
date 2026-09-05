@@ -12,7 +12,7 @@ const auditLogSchema = new mongoose.Schema(
     // log would otherwise claim opens that never happened.
     simulated: { type: Boolean, default: false },
     // The door was reading offline, so the command was sent without knowing it
-    // would land. Tuya acknowledges commands for unplugged devices, so a
+    // would land. Providers can acknowledge commands for unplugged devices, so a
     // "granted" row alone would overstate what we know.
     unconfirmed: { type: Boolean, default: false },
     // What the member answered when asked whether it actually opened. null

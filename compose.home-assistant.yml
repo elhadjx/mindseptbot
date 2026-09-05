@@ -1,0 +1,11 @@
+services:
+  home-assistant:
+    container_name: mindsept-home-assistant
+    image: ghcr.io/home-assistant/home-assistant:stable
+    ports:
+      - "8123:8123"
+    volumes:
+      - ./.home-assistant:/config
+    environment:
+      TZ: Africa/Algiers
+    restart: unless-stopped

@@ -90,9 +90,9 @@ const DOOR_STATUS = {
 /**
  * Two things claim to know whether a door is up, and they can disagree.
  *
- * `door.online` is Tuya's heartbeat flag, read when the panel last asked. It
- * lags reality by minutes in both directions (see door-service.js), so it is
- * the weaker witness. `offline` is the live latch from /api/doors/stream - a
+ * `door.online` is the provider's last reading, taken when the panel asked. It
+ * can lag reality (see door-service.js), so it is the weaker witness.
+ * `offline` is the live latch from /api/doors/stream - a
  * door that actually refused to open. A confirmed failure wins over a
  * heartbeat that may simply not have arrived yet, so it is checked first.
  */
@@ -101,7 +101,7 @@ export function doorState(door, offline = false) {
   if (offline || door.online === false) return 'offline';
   if (door.online === true) return 'online';
   // null: the probe itself failed. Not the same as offline, and never shown as
-  // one - a hiccup talking to Tuya would otherwise read as a dead door.
+  // one - a hiccup talking to the provider would otherwise read as a dead door.
   return 'unknown';
 }
 

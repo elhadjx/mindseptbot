@@ -16,7 +16,7 @@ const STATUS_COPY = {
 const UNCONFIRMED = {
   door_offline: "The door isn't responding — the open was sent anyway, but nothing confirms it worked.",
   relay_did_not_switch:
-    'Tuya accepted the command, but the relay never reported switching — the door probably did not open.',
+    'The command was accepted, but the relay never reported switching — the door probably did not open.',
 };
 
 /**
@@ -64,7 +64,7 @@ export default function Connection({ state, doors, offlineDoors }) {
     setBusyDoor(key);
     try {
       const { unconfirmed, reason } = await api.openDoor(key);
-      // Tuya accepts a command for an unplugged relay, so "the call worked" is
+      // A provider can accept a command for an unplugged relay, so "the call worked" is
       // not "the door opened". Say which one actually happened.
       setFlash(
         unconfirmed

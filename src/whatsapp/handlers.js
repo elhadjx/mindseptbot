@@ -153,9 +153,8 @@ async function handleMessage(client, msg) {
     const durationMs = Date.now() - startedAt;
     const actor = user.displayName || identity.name || identity.waId;
 
-    // Nothing proved the door opened - either it was already reading offline,
-    // or the relay never reported the switch. Tuya accepting the command means
-    // nothing either way, so this is not reported as an open: the member is
+    // Nothing proved the door opened: the provider returned an explicitly
+    // unconfirmed result. This is not reported as an open; the member is
     // asked, the admin is alerted, and the row is marked unconfirmed until
     // somebody says otherwise.
     if (unconfirmed) {
@@ -186,8 +185,8 @@ async function handleMessage(client, msg) {
       return;
     }
 
-    // The relay reported the switch, so whatever Tuya said about reachability a
-    // moment ago is history.
+    // The active provider completed the pulse, so its earlier reachability
+    // snapshot is history.
     reportDoorOnline({ door: command.door, label: vars.door, simulated });
 
     await record({ ...base, decision: 'granted', durationMs, simulated });
@@ -248,7 +247,7 @@ async function resolveConfirmation(client, msg, settings) {
   const vars = { name: question.actorName || identity.name || 'toi', door: question.label };
 
   if (answer === 'yes') {
-    // A person watched it open. That outranks anything Tuya has to say, so the
+    // A person watched it open. That outranks anything the provider reports, so the
     // outage is over as far as the panel and the alerts are concerned.
     if (question.auditId) {
       await AuditLog.updateOne(

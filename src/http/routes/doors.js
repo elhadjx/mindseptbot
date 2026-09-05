@@ -10,7 +10,7 @@ const router = express.Router();
 router.get('/', async (req, res) => {
   const settings = await Settings.load();
 
-  // The reachability probe is per door and hits Tuya, so run them together
+  // The reachability probe is per door and hits the active provider, so run them together
   // rather than serially - this is on the panel's first paint. Live outage
   // state comes from /stream instead, which replays on connect.
   const doors = await Promise.all(

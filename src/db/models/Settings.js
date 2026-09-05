@@ -75,7 +75,7 @@ const settingsSchema = new mongoose.Schema(
     replies: { type: repliesSchema, default: () => defaultReplies() },
 
     // Test mode: run the whole pipeline - scope, whitelist, rate limits, audit
-    // log - but never send the Tuya command. For trying the bot out without
+    // log - but never send the door command. For trying the bot out without
     // opening a real door onto the street.
     testMode: { type: Boolean, default: false },
 

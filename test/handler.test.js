@@ -1,6 +1,6 @@
 const path = require('path');
-// Exercises the full message pipeline against the real Mongo, with the Tuya
-// call stubbed out so no physical relay fires.
+// Exercises the full message pipeline against the real Mongo, with the door
+// provider stubbed out so no physical relay fires.
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const Module = require('module');

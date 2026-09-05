@@ -18,8 +18,8 @@ const { normalizePhone } = require('../whatsapp/phone');
 const offlineDoors = new Set();
 
 // Doors a person has told us stayed shut. Latched separately from the above so
-// the upgrade from "Tuya says it is not answering" to "someone standing there
-// watched it not open" is worth exactly one more buzz per outage.
+// the upgrade from "the provider says it is not answering" to "someone
+// standing there watched it not open" is worth exactly one more buzz per outage.
 const confirmedDoors = new Set();
 
 /**
@@ -101,8 +101,8 @@ async function notify({ settings, text, title, body, tag, log }) {
 /**
  * Someone was asked whether the door opened and said no.
  *
- * This is the only hard evidence of an outage the system can get - Tuya's flag
- * is a heartbeat and its command acknowledgement means nothing - so it alerts
+ * This is the only hard evidence of an outage the system can get - provider
+ * state can lag and its command acknowledgement means nothing - so it alerts
  * even when the door was already latched offline by the probe. Once per
  * outage, though: the tenth person confirming the same dead door adds nothing.
  */

@@ -126,7 +126,7 @@ export default function App() {
     };
   }, []);
 
-  // Each door's reachability is probed against Tuya on this call, so it is a
+  // Each door's reachability is probed against its provider on this call, so it is a
   // reading taken at a moment rather than a subscription. Kept separate from
   // the settings load so a page can ask for a fresh one on its own - the
   // answer goes stale the second after it arrives.

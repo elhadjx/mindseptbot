@@ -1,0 +1,28 @@
+name: mindsept-door
+
+services:
+  home-assistant:
+    container_name: mindsept-home-assistant
+    image: ghcr.io/home-assistant/home-assistant:stable
+    ports:
+      - "8123:8123"
+    volumes:
+      - home-assistant-config:/config
+    environment:
+      TZ: Africa/Algiers
+    restart: unless-stopped
+
+  door-agent:
+    container_name: mindsept-door-agent
+    build:
+      context: .
+      dockerfile: Dockerfile.door-agent
+    env_file:
+      - ${DOOR_AGENT_ENV_FILE:-.env.bridge}
+    depends_on:
+      - home-assistant
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+volumes:
+  home-assistant-config:

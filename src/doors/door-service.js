@@ -1,45 +1,74 @@
 const { config } = require('../config');
 const { TuyaCloudClient } = require('./tuya-cloud');
+const { HomeAssistantClient } = require('./home-assistant');
 
-const tuya = new TuyaCloudClient(config.tuya);
+const PROVIDERS = new Set(['tuya', 'home_assistant', 'bridge']);
+if (!PROVIDERS.has(config.doors.provider)) {
+  throw new Error(`Unknown door provider: ${config.doors.provider}`);
+}
 
-// The inner door is a smart lock (Tuya category "jtmspro"), not a plain relay switch.
-// Locks don't expose a simple DP for remote unlock - the app uses Tuya's separate,
-// ticket-based Smart Lock unlock flow. That's still out of scope (see README).
+const tuya = config.doors.provider === 'tuya' ? new TuyaCloudClient(config.tuya) : null;
+const homeAssistant =
+  config.doors.provider === 'home_assistant'
+    ? new HomeAssistantClient(config.homeAssistant)
+    : null;
+const bridge =
+  config.doors.provider === 'bridge'
+    ? require('../bridge/runtime').bridgeCoordinator
+    : null;
+
+// The inner door is a smart lock (Tuya category "jtmspro"), not a plain relay
+// switch. Only the front-door relay is in scope for this provider migration.
 const DOORS = {
   front: {
     label: 'Front door',
     deviceId: config.doors.frontDeviceId,
     dpCode: 'switch_1',
+    homeAssistantEntityId: config.doors.frontHomeAssistantEntityId,
   },
 };
+
+function isConfigured(door) {
+  if (bridge) return bridge.enabled;
+  return config.doors.provider === 'home_assistant'
+    ? Boolean(door.homeAssistantEntityId)
+    : Boolean(door.deviceId);
+}
 
 function listDoors() {
   return Object.entries(DOORS).map(([key, door]) => ({
     key,
     label: door.label,
-    configured: Boolean(door.deviceId),
+    configured: isConfigured(door),
   }));
 }
 
 /**
- * Everything Tuya will tell us about the relay in one call: whether it thinks
- * the device is reachable, and the switch state the device itself last
- * reported.
- *
- * The two are worth different amounts. `online` is a heartbeat and lags
- * reality by minutes in both directions. `dp` is what the hardware said about
- * itself, which is the closest thing to a witness this system has.
+ * Everything the active provider can tell us about the relay in one call:
+ * whether it is reachable and the switch state it last reported.
  *
  * @returns {Promise<{online: boolean|null, dp: *}|null>} null means the call
- *   failed. `dp` undefined means the response carried no state for our switch -
- *   nothing to read, as opposed to a switch that read false.
+ *   failed. `dp` undefined means the response carried no binary switch state.
  */
 async function readDoorState(doorKey) {
   const door = DOORS[doorKey];
-  if (!door?.deviceId) return null;
+  if (!door || !isConfigured(door)) return null;
 
   try {
+    if (bridge) return bridge.getDoorState(doorKey);
+
+    if (homeAssistant) {
+      const result = await homeAssistant.getState(door.homeAssistantEntityId);
+      const state = String(result?.state || '').toLowerCase();
+      if (state === 'unavailable' || state === 'unknown') {
+        return { online: false, dp: undefined };
+      }
+      return {
+        online: state ? true : null,
+        dp: state === 'on' ? true : state === 'off' ? false : undefined,
+      };
+    }
+
     const result = await tuya.request('GET', `/v1.0/iot-03/devices/${door.deviceId}`);
     const status = Array.isArray(result?.status) ? result.status : null;
     return {
@@ -48,87 +77,69 @@ async function readDoorState(doorKey) {
     };
   } catch (err) {
     console.warn(`[${door.label}] state read failed:`, err.message);
+    // A configured entity that Home Assistant cannot find is known to be
+    // unavailable, not an ambiguous network hiccup.
+    if (homeAssistant && err.homeAssistantStatus === 404) {
+      return { online: false, dp: undefined };
+    }
     return null;
   }
 }
 
-/**
- * Is the door's relay currently reachable, as far as Tuya knows?
- *
- * @returns {Promise<boolean|null>} null means "we couldn't find out" - the
- *   status call itself failed. That is not the same as offline and must not be
- *   treated as one: a hiccup talking to Tuya would otherwise read as a dead
- *   door on every single open.
- */
 async function checkDoorOnline(doorKey) {
   const state = await readDoorState(doorKey);
   return state ? state.online : null;
 }
 
-/**
- * Read a post-pulse state as a verdict on whether the relay actually switched.
- *
- * @returns {'switched'|'offline'|'no_switch'|null} null means unverifiable -
- *   the read failed, or the response carried no state for this switch. Never
- *   guess in that case: a false alarm on a working door teaches people to
- *   ignore the question.
- */
 function judgePulse(state) {
-  if (!state) return null;
-  if (state.dp === undefined) return null;
-  // Not there to have switched, whatever it last reported about itself.
+  if (!state || state.dp === undefined) return null;
   if (state.online === false) return 'offline';
   return state.dp === true ? 'switched' : 'no_switch';
 }
 
-// Secondary evidence only. The status endpoint's `online` flag is the signal we
-// actually trust; these codes let a command that fails on its own still be
-// reported as an offline door. Unverified against a live device, so nothing
-// depends on the list being right or complete - being wrong here costs a
-// generic error message, not a wrong decision.
 const OFFLINE_ERROR_CODES = new Set([2007, 2009]);
+const OFFLINE_HTTP_STATUSES = new Set([408, 502, 503, 504]);
 
 function isOfflineError(err) {
-  return OFFLINE_ERROR_CODES.has(Number(err?.tuyaCode));
+  if (tuya) return OFFLINE_ERROR_CODES.has(Number(err?.tuyaCode));
+  if (bridge) {
+    return Boolean(err?.doorOffline || err?.connectionError);
+  }
+  return Boolean(
+    err?.connectionError || OFFLINE_HTTP_STATUSES.has(Number(err?.homeAssistantStatus))
+  );
+}
+
+async function setDoorState(door, enabled) {
+  if (homeAssistant) {
+    await homeAssistant.setState(door.homeAssistantEntityId, enabled);
+    return;
+  }
+  await tuya.request('POST', `/v1.0/iot-03/devices/${door.deviceId}/commands`, {
+    commands: [{ code: door.dpCode, value: enabled }],
+  });
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// The physical relay is momentary: switch on, wait, switch off. Confirmed
-// against device logs (~1s) - see README.
-//
-// `simulate` short-circuits before any Tuya call. It lives here rather than in
-// the callers so that every path - WhatsApp command and panel button alike -
-// honours it; there is no way to open the door that bypasses this check.
-//
-// Before pulsing we ask Tuya whether the relay is even reachable, and on a
-// negative answer we wait and ask again. But an offline reading never cancels
-// the open: Tuya's flag is heartbeat-based and lags reality by minutes in both
-// directions, so refusing on it alone would lock people out of a door that
-// works. We try anyway.
-//
-// What we cannot do is claim it worked. Tuya acknowledges a command for a
-// device that is unplugged - the cloud confirms it received the request, never
-// that the relay acted on it - so a resolved promise here is not evidence of
-// an open.
-//
-// Nor is a healthy `online` flag. Tuya only marks a device offline after a
-// heartbeat timeout, so for the minutes between a relay dying and Tuya
-// noticing, every reading says the door is fine and every command is accepted.
-// That window is where a confident "opened" is most likely to be a lie. So
-// after switching on we read the relay's own reported state back: the device
-// saying switch_1 is closed is evidence, where the cloud's receipt is not.
-//
-// Returns { simulated, unconfirmed, reason }. `unconfirmed` means exactly one
-// thing: nothing here proves the door opened. Callers must not report those as
-// a plain success - only a person at the door can settle it.
+/**
+ * Pulse the front-door relay and verify that it reported ON while held.
+ *
+ * Returns { simulated, unconfirmed, reason }. `unconfirmed` means nothing here
+ * proves the relay moved, so callers must not report it as a plain success.
+ */
 async function triggerDoor(doorKey, { pulseMs = config.doors.relayPulseMs, simulate = false } = {}) {
   const door = DOORS[doorKey];
   if (!door) {
     throw new Error(`Unknown or unsupported door: ${doorKey}`);
   }
-  if (!door.deviceId) {
-    throw new Error(`${door.label} is not configured (missing device id in .env)`);
+  if (!isConfigured(door)) {
+    const variable = {
+      home_assistant: 'HOME_ASSISTANT_FRONT_ENTITY_ID',
+      bridge: 'DOOR_BRIDGE_TOKEN',
+      tuya: 'DOOR_FRONT_DEVICE_ID',
+    }[config.doors.provider];
+    throw new Error(`${door.label} is not configured (missing ${variable} in .env)`);
   }
 
   if (simulate) {
@@ -148,54 +159,80 @@ async function triggerDoor(doorKey, { pulseMs = config.doors.relayPulseMs, simul
     }
   }
 
-  const commandsPath = `/v1.0/iot-03/devices/${door.deviceId}/commands`;
-  let verdict = null;
-
-  try {
-    await tuya.request('POST', commandsPath, {
-      commands: [{ code: door.dpCode, value: true }],
-    });
-    // Timed from here, not from before the request: the relay is closed once
-    // the command lands, and the door expects to be held for pulseMs after
-    // that. Counting the request latency into the hold would quietly shorten
-    // every pulse.
-    const closedAt = Date.now();
-    console.log(`[${door.label}] relay ON`);
-
-    // Look while the relay is still held closed - that is the only moment the
-    // device has anything to report. The remaining wait is trimmed by however
-    // long the read took, so verifying never lengthens the pulse.
-    if (config.doors.verifyPulse) {
-      await sleep(Math.min(config.doors.verifyDelayMs, pulseMs));
-      verdict = judgePulse(await readDoorState(doorKey));
+  // A bridge job is one atomic local pulse. Never send separate ON and OFF
+  // jobs across the internet: a slow or broken connection between them could
+  // leave the relay energised.
+  if (bridge) {
+    try {
+      return await bridge.enqueuePulse({ door: doorKey, pulseMs });
+    } catch (err) {
+      err.doorOffline = wasOffline || isOfflineError(err);
+      throw err;
     }
-
-    const heldMs = Date.now() - closedAt;
-    if (heldMs < pulseMs) await sleep(pulseMs - heldMs);
-
-    await tuya.request('POST', commandsPath, {
-      commands: [{ code: door.dpCode, value: false }],
-    });
-    console.log(`[${door.label}] relay OFF`);
-  } catch (err) {
-    // Two independent ways to conclude the door is unreachable: the status
-    // endpoint told us twice, or the command itself came back with an offline
-    // code. Either one earns the specific message and the admin alert.
-    err.doorOffline = wasOffline || isOfflineError(err);
-    throw err;
   }
 
-  // The relay reporting the switch outranks the offline flag that preceded it:
-  // hardware describing itself beats a heartbeat that may simply be late.
+  let verdict = null;
+  let attemptedOn = false;
+  let closedAt = 0;
+  let failure = null;
+
+  try {
+    attemptedOn = true;
+    closedAt = Date.now();
+    await setDoorState(door, true);
+    console.log(`[${door.label}] relay ON via ${config.doors.provider}`);
+
+    if (config.doors.verifyPulse) {
+      await sleep(Math.min(config.doors.verifyDelayMs, pulseMs));
+      const remainingMs = Math.max(0, pulseMs - (Date.now() - closedAt));
+      if (remainingMs > 0) {
+        // A provider read must never keep the relay on beyond the pulse. Leave
+        // the slow read to finish harmlessly in the background and move on to
+        // the finally block, which sends OFF at the deadline.
+        const verificationTimedOut = Symbol('verificationTimedOut');
+        const state = await Promise.race([
+          readDoorState(doorKey),
+          sleep(remainingMs).then(() => verificationTimedOut),
+        ]);
+        if (state !== verificationTimedOut) verdict = judgePulse(state);
+      }
+    }
+  } catch (err) {
+    failure = err;
+  } finally {
+    // Once ON has been attempted, always make a best effort to send OFF. The ON
+    // request can time out after the provider delivered it, so even a rejected
+    // promise is not proof the relay stayed off. A hard process kill cannot run
+    // a finally block, so initializeDoors() sends another OFF after a restart.
+    if (attemptedOn) {
+      if (closedAt) {
+        const heldMs = Date.now() - closedAt;
+        if (heldMs < pulseMs) await sleep(pulseMs - heldMs);
+      }
+      try {
+        await setDoorState(door, false);
+        console.log(`[${door.label}] relay OFF via ${config.doors.provider}`);
+      } catch (offError) {
+        if (failure) failure.offError = offError;
+        else failure = offError;
+      }
+    }
+  }
+
+  if (failure) {
+    failure.doorOffline = wasOffline || isOfflineError(failure);
+    throw failure;
+  }
+
   if (verdict === 'switched') {
     if (wasOffline) {
-      console.log(`[${door.label}] reported offline but the relay switched - flag was stale`);
+      console.log(`[${door.label}] reported offline but the relay switched - status was stale`);
     }
     return { simulated: false, unconfirmed: false, reason: null };
   }
 
   if (verdict === 'no_switch') {
-    console.warn(`[${door.label}] Tuya accepted the command but the relay never switched`);
+    console.warn(`[${door.label}] command was accepted but the relay never switched`);
     return { simulated: false, unconfirmed: true, reason: 'relay_did_not_switch' };
   }
 
@@ -204,10 +241,6 @@ async function triggerDoor(doorKey, { pulseMs = config.doors.relayPulseMs, simul
     return { simulated: false, unconfirmed: true, reason: 'door_offline' };
   }
 
-  // Unverifiable: the read failed, the response carried no switch state, or
-  // verification is turned off. Fall back to what the flag said - claiming an
-  // open we cannot see is the whole bug, but so is doubting every open on a
-  // door that has given us no reason to.
   if (wasOffline) {
     console.log(`[${door.label}] command sent to a door reading offline - unconfirmed`);
     return { simulated: false, unconfirmed: true, reason: 'door_offline' };
@@ -215,4 +248,28 @@ async function triggerDoor(doorKey, { pulseMs = config.doors.relayPulseMs, simul
   return { simulated: false, unconfirmed: false, reason: null };
 }
 
-module.exports = { DOORS, listDoors, checkDoorOnline, readDoorState, triggerDoor };
+/** Make a stuck relay safe after a process or machine restart. */
+async function initializeDoors() {
+  if (!homeAssistant) return;
+  await Promise.all(
+    Object.values(DOORS)
+      .filter(isConfigured)
+      .map(async (door) => {
+        try {
+          await setDoorState(door, false);
+          console.log(`[${door.label}] startup safety: relay OFF`);
+        } catch (err) {
+          console.warn(`[${door.label}] startup safety OFF failed:`, err.message);
+        }
+      })
+  );
+}
+
+module.exports = {
+  DOORS,
+  listDoors,
+  checkDoorOnline,
+  readDoorState,
+  triggerDoor,
+  initializeDoors,
+};

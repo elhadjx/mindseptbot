@@ -46,6 +46,20 @@ export const api = {
   saveSettings: (patch) => request('/settings', { method: 'PATCH', body: patch }),
   outcomes: () => request('/settings/outcomes'),
 
+  aiCredentials: () => request('/ai-credentials'),
+  saveAiCredential: (provider, apiKey, currentPassword) =>
+    request('/ai-credentials', {
+      method: 'POST',
+      body: { provider, apiKey, currentPassword },
+    }),
+  removeAiCredential: (provider, currentPassword) =>
+    request(`/ai-credentials/${provider}`, {
+      method: 'DELETE',
+      body: { currentPassword },
+    }),
+  testAiCredential: (provider) =>
+    request(`/ai-credentials/${provider}/test`, { method: 'POST' }),
+
   doors: () => request('/doors'),
   openDoor: (door) => request(`/doors/${door}/open`, { method: 'POST' }),
 

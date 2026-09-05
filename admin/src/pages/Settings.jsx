@@ -23,12 +23,24 @@ export default function Settings({
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [keywordText, setKeywordText] = useState((settings.commandKeywords || []).join(', '));
   const [flash, setFlash] = useFlash();
+  const [aiFlash, setAiFlash] = useFlash();
   const [saving, setSaving] = useState(false);
+  const [aiCredentials, setAiCredentials] = useState(null);
+  const [aiKeys, setAiKeys] = useState({ openai: '', gemini: '' });
+  const [aiCurrentPassword, setAiCurrentPassword] = useState('');
+  const [aiBusy, setAiBusy] = useState('');
 
   useEffect(() => {
     setDraft(settings);
     setKeywordText((settings.commandKeywords || []).join(', '));
   }, [settings]);
+
+  useEffect(() => {
+    api
+      .aiCredentials()
+      .then((result) => setAiCredentials(result.providers))
+      .catch((err) => setAiFlash({ ok: false, message: `Could not load AI keys: ${err.message}` }));
+  }, [setAiFlash]);
 
   const [manualGroup, setManualGroup] = useState('');
   const listened = draft.groups || [];
@@ -66,6 +78,71 @@ export default function Settings({
 
   function set(field, value) {
     setDraft((d) => ({ ...d, [field]: value }));
+  }
+
+  function aiErrorMessage(error) {
+    const messages = {
+      current_password_wrong: 'The current admin password is not correct.',
+      too_many_attempts: 'Too many password attempts. Wait a few minutes.',
+      invalid_api_key: 'That API key is not valid. Paste it without spaces.',
+      provider_not_configured: 'No key is configured for this provider.',
+      provider_connection_failed: 'The provider rejected the test. Check the key and Railway logs.',
+    };
+    return messages[error.message] || error.message;
+  }
+
+  async function saveAiKey(provider) {
+    setAiBusy(`save:${provider}`);
+    setAiFlash(null);
+    try {
+      const result = await api.saveAiCredential(
+        provider,
+        aiKeys[provider],
+        aiCurrentPassword
+      );
+      setAiCredentials(result.providers);
+      setAiKeys((keys) => ({ ...keys, [provider]: '' }));
+      setAiCurrentPassword('');
+      setAiFlash({ ok: true, message: `${provider === 'openai' ? 'OpenAI' : 'Gemini'} key saved securely.` });
+    } catch (err) {
+      setAiFlash({ ok: false, message: aiErrorMessage(err) });
+    } finally {
+      setAiBusy('');
+    }
+  }
+
+  async function removeAiKey(provider) {
+    setAiBusy(`remove:${provider}`);
+    setAiFlash(null);
+    try {
+      const result = await api.removeAiCredential(provider, aiCurrentPassword);
+      setAiCredentials(result.providers);
+      setAiCurrentPassword('');
+      const fallback = result.providers?.[provider]?.source === 'environment';
+      setAiFlash({
+        ok: true,
+        message: fallback
+          ? 'Dashboard key removed. The Railway environment key is active again.'
+          : `${provider === 'openai' ? 'OpenAI' : 'Gemini'} key removed.`,
+      });
+    } catch (err) {
+      setAiFlash({ ok: false, message: aiErrorMessage(err) });
+    } finally {
+      setAiBusy('');
+    }
+  }
+
+  async function testAiKey(provider) {
+    setAiBusy(`test:${provider}`);
+    setAiFlash(null);
+    try {
+      await api.testAiCredential(provider);
+      setAiFlash({ ok: true, message: `${provider === 'openai' ? 'OpenAI' : 'Gemini'} connection works.` });
+    } catch (err) {
+      setAiFlash({ ok: false, message: aiErrorMessage(err) });
+    } finally {
+      setAiBusy('');
+    }
   }
 
   function addGroup(group) {
@@ -355,6 +432,192 @@ export default function Settings({
       </Card>
 
       <Card
+        title="AI in group chats"
+        hint="Optional helpers for natural requests and less repetitive replies. Authorization, cooldowns and the door result always stay in code."
+      >
+        <div className="stack">
+          <Flash flash={aiFlash} />
+
+          <Field
+            label="Active provider"
+            hint="The other provider can stay configured for later. Use Save settings above after switching."
+          >
+            <select
+              className="select"
+              value={draft.aiProvider || 'openai'}
+              onChange={(e) => set('aiProvider', e.target.value)}
+            >
+              <option value="openai">OpenAI</option>
+              <option value="gemini">Google Gemini</option>
+            </select>
+          </Field>
+
+          <div className="stack">
+            {['openai', 'gemini'].map((provider) => {
+              const label = provider === 'openai' ? 'OpenAI' : 'Gemini';
+              const status = aiCredentials?.[provider];
+              const sourceLabel =
+                status?.source === 'dashboard'
+                  ? 'Configured securely in this dashboard'
+                  : status?.source === 'environment'
+                    ? 'Configured in Railway environment variables'
+                    : status?.source === 'unreadable'
+                      ? 'Stored key cannot be decrypted — replace it'
+                      : 'Not configured';
+              const isActive = (draft.aiProvider || 'openai') === provider;
+              return (
+                <div className="ai-key-row" key={provider}>
+                  <div className="ai-key-row__meta">
+                    <div style={{ fontWeight: 600 }}>
+                      {label} API key {isActive ? '· selected' : ''}
+                    </div>
+                    <div className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
+                      {sourceLabel}. The saved value is never sent back to the browser.
+                    </div>
+                  </div>
+                  <input
+                    className="input"
+                    type="password"
+                    autoComplete="off"
+                    placeholder={status?.configured ? 'Paste a replacement key' : 'Paste API key'}
+                    value={aiKeys[provider]}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') e.preventDefault();
+                    }}
+                    onChange={(e) => setAiKeys((keys) => ({ ...keys, [provider]: e.target.value }))}
+                  />
+                  <div className="row" style={{ justifyContent: 'flex-end' }}>
+                    {status?.configured && (
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--sm"
+                        disabled={Boolean(aiBusy)}
+                        onClick={() => testAiKey(provider)}
+                      >
+                        {aiBusy === `test:${provider}` ? 'Testing…' : 'Test'}
+                      </button>
+                    )}
+                    {status?.source === 'dashboard' && (
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--sm"
+                        disabled={Boolean(aiBusy) || !aiCurrentPassword}
+                        onClick={() => removeAiKey(provider)}
+                      >
+                        {aiBusy === `remove:${provider}` ? 'Removing…' : 'Remove'}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn--sm"
+                      disabled={Boolean(aiBusy) || !aiKeys[provider] || !aiCurrentPassword}
+                      onClick={() => saveAiKey(provider)}
+                    >
+                      {aiBusy === `save:${provider}`
+                        ? 'Saving…'
+                        : status?.configured
+                          ? 'Replace'
+                          : 'Save key'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <Field
+            label="Current admin password"
+            hint="Required only when saving, replacing or removing a key. Testing does not need it."
+          >
+            <input
+              className="input"
+              type="password"
+              autoComplete="current-password"
+              value={aiCurrentPassword}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.preventDefault();
+              }}
+              onChange={(e) => setAiCurrentPassword(e.target.value)}
+            />
+          </Field>
+
+          {draft.replyMode === 'react' && (
+            <Empty>
+              The bot is currently set to reaction-only. Natural-language opening can still work,
+              but varied text and GIFs need “How the bot answers” set to Text or Both.
+            </Empty>
+          )}
+          <div className="spread">
+            <div>
+              <div style={{ fontWeight: 600 }}>Understand natural door requests</div>
+              <div className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
+                Off by default. In enabled groups, whitelisted members can write things like “tu
+                peux m’ouvrir ?”. A local filter ignores ordinary chat before AI sees anything;
+                uncertain messages do nothing. Exact commands still work if AI is down.
+              </div>
+            </div>
+            <Toggle
+              checked={Boolean(draft.aiNaturalLanguageEnabled)}
+              label="Open from natural-language requests"
+              onChange={(v) => set('aiNaturalLanguageEnabled', v)}
+            />
+          </div>
+
+          <div className="spread">
+            <div>
+              <div style={{ fontWeight: 600 }}>Vary successful and error replies</div>
+              <div className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
+                Group replies can be short and playful, but never target a person or joke about
+                sex, bodies, identity, health, politics, money, violence, drugs or profanity. An
+                unsafe or unavailable AI reply is replaced by the fixed wording below.
+              </div>
+            </div>
+            <Toggle
+              checked={Boolean(draft.aiRepliesEnabled)}
+              label="Use workplace-safe AI replies"
+              onChange={(v) => set('aiRepliesEnabled', v)}
+            />
+          </div>
+
+          <div className="spread">
+            <div>
+              <div style={{ fontWeight: 600 }}>Occasional GIF-only success</div>
+              <div className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
+                Uses only locally bundled, approved animations, and only after a confirmed real
+                open. Errors, denials and test mode always keep a clear text reply.
+              </div>
+            </div>
+            <Toggle
+              checked={draft.aiGifRepliesEnabled !== false}
+              disabled={!draft.aiRepliesEnabled}
+              label="Allow approved GIF replies"
+              onChange={(v) => set('aiGifRepliesEnabled', v)}
+            />
+          </div>
+
+          <Field label="GIF chance on successful opens" hint="0–30%. Default: 15%.">
+            <input
+              className="input"
+              style={{ maxWidth: '160px' }}
+              type="number"
+              min="0"
+              max="30"
+              value={draft.aiGifChancePct ?? 15}
+              disabled={!draft.aiRepliesEnabled || draft.aiGifRepliesEnabled === false}
+              onChange={(e) => set('aiGifChancePct', Number(e.target.value))}
+            />
+          </Field>
+
+          <div className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
+            Keys entered here are encrypted before being stored in MongoDB. Only the member’s
+            first/display name, the current candidate message and the decided reply are sent to the
+            active provider; no phone number, chat history or raw door error is sent. Provider API
+            storage is disabled.
+          </div>
+        </div>
+      </Card>
+
+      <Card
         title="What the bot replies"
         hint={
           draft.replyMode === 'react'
@@ -445,6 +708,20 @@ export default function Settings({
 
       <Card title="Limits" hint="Guard rails against spam and against replayed messages after a reconnect.">
         <div className="grid-2">
+          <Field
+            label="Quiet period per member (minutes)"
+            hint="After the first recognized request, silently ignore more door requests from that person in that group. 0 disables it."
+          >
+            <input
+              className="input"
+              type="number"
+              min="0"
+              max="60"
+              step="0.5"
+              value={draft.doorRequestCooldownMinutes ?? 2}
+              onChange={(e) => set('doorRequestCooldownMinutes', Number(e.target.value))}
+            />
+          </Field>
           <Field label="Opens per person per minute">
             <input
               className="input"

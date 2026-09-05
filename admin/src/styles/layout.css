@@ -210,6 +210,22 @@
   padding: var(--sp-2);
 }
 
+/* Provider credentials need the same visual rhythm as reply rows, but their
+   secret field and action buttons both need real width. */
+.ai-key-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) minmax(220px, 1.5fr) auto;
+  gap: var(--sp-3);
+  align-items: center;
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--clr-border);
+}
+
+.ai-key-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
 @media (max-width: 720px) {
   .reply-row {
     grid-template-columns: 4.5rem minmax(0, 1fr);
@@ -218,6 +234,10 @@
   /* Label spans the full width above the two inputs. */
   .reply-row__meta {
     grid-column: 1 / -1;
+  }
+
+  .ai-key-row {
+    grid-template-columns: 1fr;
   }
 }
 

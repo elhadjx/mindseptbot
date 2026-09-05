@@ -612,6 +612,47 @@ the image installs Debian's `chromium` for it.
   `DEFAULT_COUNTRY_CODE`. After that, Settings → Admin password owns it, and
   changing the env var does nothing; changing it there requires the current
   password, so a stolen session cookie alone can't lock the real admin out.
+- OpenAI and Gemini keys saved under Settings are encrypted in Mongo with
+  AES-256-GCM. The encryption key is derived from `SESSION_SECRET`; the API
+  never sends a saved key back to the browser. Keep `SESSION_SECRET` stable.
+  Rotating it invalidates panel sessions and makes dashboard-stored AI keys
+  unreadable until an admin replaces them.
+
+## Optional AI group replies and door requests
+
+Open **Settings → AI in group chats**, choose OpenAI or Google Gemini, paste its
+API key, enter the current admin password, and select **Save key**. Use **Test**
+to verify the saved credential, then enable either AI feature and use the page's
+main **Save settings** button. Both features default off. The model never
+authorizes a member, selects a door result, or calls the relay:
+
+- Explicit commands such as `/open` always use the existing deterministic
+  whitelist and door pipeline, even if the selected provider is slow or
+  unavailable.
+- Natural-language opening is group-only and whitelist-only. A conservative
+  local phrase filter runs before the API call; quoted, forwarded, negated and
+  ambiguous messages do nothing. Model uncertainty or failure also does
+  nothing.
+- Varied replies are generated only after code has decided the outcome. The
+  fixed configured reply is used on timeout, invalid output, unsafe wording or
+  moderation failure. GIF-only replies are drawn from three original bundled
+  clips and are permitted only for successful real opens.
+- Requests use Structured Outputs, `store: false`, a short timeout and no
+  retry. Only the current candidate message, first/display name, canonical
+  reply and decided outcome are sent — never a phone/JID, chat history, access
+  token or raw provider error.
+
+Dashboard keys override `OPENAI_API_KEY` or `GEMINI_API_KEY` from Railway. If a
+dashboard key is removed, the corresponding environment key becomes the
+fallback again. Provider/model environment variables are documented in
+`.env.example`; environment keys remain useful for recovery but require a
+Railway redeploy to change.
+
+The **Quiet period per member** setting defaults to two minutes. Once a
+recognized request enters the pipeline, later door requests from that same
+member in that same chat are silently ignored until the period ends. Other
+members and openings from the admin panel are unaffected; setting it to zero
+disables the quiet period. Existing per-minute limits remain as a second guard.
 
 ## Background
 

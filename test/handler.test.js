@@ -69,6 +69,8 @@ const AuditLog = require('../src/db/models/AuditLog');
 const { handleMessage } = require('../src/whatsapp/handlers');
 const { backfillPhones } = require('../src/whatsapp/phone');
 const rateLimiter = require('../src/whatsapp/rate-limiter');
+const requestCooldown = require('../src/whatsapp/request-cooldown');
+const { doorAI } = require('../src/ai/door-ai');
 const confirmations = require('../src/whatsapp/confirmations');
 
 const GROUP = '120363000000000000@g.us';
@@ -81,7 +83,15 @@ const OTHER_GROUP = '120363999999999999@g.us';
 const client = { pupPage: null };
 
 let n = 0;
-function makeMsg({ from = GROUP, author, body, ageSec = 0, fromMe = false }) {
+function makeMsg({
+  from = GROUP,
+  author,
+  body,
+  ageSec = 0,
+  fromMe = false,
+  hasQuotedMsg = false,
+  isForwarded = false,
+}) {
   const reactions = [];
   const replies = [];
   return {
@@ -89,6 +99,8 @@ function makeMsg({ from = GROUP, author, body, ageSec = 0, fromMe = false }) {
     author,
     body,
     fromMe,
+    hasQuotedMsg,
+    isForwarded,
     timestamp: Math.floor(Date.now() / 1000) - ageSec,
     id: { _serialized: `msg-${++n}` },
     react: async (e) => reactions.push(e),
@@ -117,6 +129,7 @@ async function main() {
   // Clean slate on a scratch database.
   await Promise.all([User.deleteMany({}), AuditLog.deleteMany({}), Settings.deleteMany({})]);
   rateLimiter.reset();
+  requestCooldown.reset();
 
   const settings = await Settings.load();
   settings.groups = [
@@ -124,6 +137,9 @@ async function main() {
     { id: DISABLED_GROUP, name: 'Paused group', enabled: false },
   ];
   settings.replyMode = 'both';
+  // Most of this suite predates the deliberate quiet period and exercises the
+  // burst limiter separately. The cooldown gets its own section below.
+  settings.doorRequestCooldownMinutes = 0;
   await settings.save();
 
   const allowed = await User.create({
@@ -171,6 +187,82 @@ async function main() {
     await handleMessage(client, m);
   }
   check('non-command chatter is ignored', opens.length === 0 && (await AuditLog.countDocuments()) === 0);
+
+  console.log('\n-- natural-language requests --');
+  settings.aiNaturalLanguageEnabled = true;
+  settings.aiProvider = 'gemini';
+  await settings.save();
+  const realClassifier = doorAI.classifyDoorIntent;
+  let classifierCalls = 0;
+  let classifierProvider = null;
+  doorAI.classifyDoorIntent = async (_message, options) => {
+    classifierCalls += 1;
+    classifierProvider = options?.provider;
+    return true;
+  };
+
+  let naturalOpensBefore = opens.length;
+  m = makeMsg({ author: '212661111111@c.us', body: 'Tu peux m’ouvrir ?' });
+  await handleMessage(client, m);
+  check('an authorized natural request opens when both checks agree', opens.length === naturalOpensBefore + 1);
+  check('  the classifier was called once', classifierCalls === 1, String(classifierCalls));
+  check('  the selected AI provider is used', classifierProvider === 'gemini', classifierProvider);
+
+  naturalOpensBefore = opens.length;
+  m = makeMsg({
+    author: '212661111111@c.us',
+    body: 'Please open the front door',
+    hasQuotedMsg: true,
+  });
+  await handleMessage(client, m);
+  check('a quoted request is ignored before AI', opens.length === naturalOpensBefore && classifierCalls === 1);
+
+  m = makeMsg({ author: '212669999999@c.us', body: 'Please open the front door' });
+  await handleMessage(client, m);
+  check('an unlisted natural request is silent', m.reactions.length === 0 && m.replies.length === 0);
+  check('  and is never sent to AI', classifierCalls === 1, String(classifierCalls));
+
+  doorAI.classifyDoorIntent = async () => false;
+  naturalOpensBefore = opens.length;
+  m = makeMsg({ author: '212661111111@c.us', body: 'Please open the front door' });
+  await handleMessage(client, m);
+  check('AI uncertainty leaves the door shut and stays silent', opens.length === naturalOpensBefore);
+  check('  uncertain natural request gets no reply', m.reactions.length === 0 && m.replies.length === 0);
+
+  doorAI.classifyDoorIntent = realClassifier;
+  settings.aiNaturalLanguageEnabled = false;
+  await settings.save();
+
+  console.log('\n-- per-member quiet period --');
+  requestCooldown.reset();
+  rateLimiter.reset();
+  settings.doorRequestCooldownMinutes = 2;
+  await settings.save();
+  const cooldownOpensBefore = opens.length;
+  const firstRequest = makeMsg({ author: '212661111111@c.us', body: '/open' });
+  const repeatedRequest = makeMsg({ author: '212661111111@c.us', body: '/open' });
+  await handleMessage(client, firstRequest);
+  await handleMessage(client, repeatedRequest);
+  check('only the first request in the quiet period opens', opens.length === cooldownOpensBefore + 1);
+  check(
+    '  repeat is ignored without reaction or reply',
+    repeatedRequest.reactions.length === 0 && repeatedRequest.replies.length === 0
+  );
+  let cooldownLog = await AuditLog.findOne().sort({ at: -1 });
+  check('  ignored repeat is auditable', /cooldown_ignored/.test(cooldownLog?.reason || ''));
+
+  m = makeMsg({ author: '99988877766655@lid', body: '/open' });
+  await handleMessage(client, m);
+  check('another member is unaffected by the quiet period', opens.length === cooldownOpensBefore + 2);
+
+  settings.doorRequestCooldownMinutes = 0;
+  await settings.save();
+  requestCooldown.reset();
+  rateLimiter.reset();
+  // The older scenarios below use absolute counters starting from zero.
+  // Reset the harness after the self-contained AI/cooldown scenarios.
+  opens.length = 0;
+  await AuditLog.deleteMany({});
 
   console.log('\n-- authorization --');
   m = makeMsg({ author: '212669999999@c.us', body: '/open' });
@@ -265,6 +357,33 @@ async function main() {
   settings.replies.granted = { emoji: '✅', text: 'Ouvert 🚪' };
   settings.replies.denied_not_whitelisted = { emoji: '⛔', text: 'Pas sur la liste.' };
   settings.markModified('replies');
+  await settings.save();
+
+  console.log('\n-- AI reply presentation --');
+  const realRewriter = doorAI.rewriteReply;
+  let rewriteInput = null;
+  doorAI.rewriteReply = async (input) => {
+    rewriteInput = input;
+    return { mode: 'text', reply: 'Allowed, mission porte accomplie 🚪' };
+  };
+  settings.aiRepliesEnabled = true;
+  await settings.save();
+  rateLimiter.reset();
+  m = makeMsg({ author: '212661111111@c.us', body: '/open' });
+  await handleMessage(client, m);
+  check('an authorized group success uses the safe rewritten text', m.replies[0] === 'Allowed, mission porte accomplie 🚪');
+  check('  AI receives the decided outcome', rewriteInput?.outcome === 'granted', rewriteInput?.outcome);
+  check('  AI receives a display name, not an identifier', rewriteInput?.name === 'Allowed Person', rewriteInput?.name);
+  check('  reply rewriting uses the selected provider', rewriteInput?.provider === 'gemini', rewriteInput?.provider);
+
+  rewriteInput = null;
+  m = makeMsg({ author: '212669999999@c.us', body: '/open' });
+  await handleMessage(client, m);
+  check('a denial keeps deterministic wording', m.replies[0] === 'Pas sur la liste.', m.replies[0]);
+  check('  denial is not sent to the rewriter', rewriteInput === null);
+
+  doorAI.rewriteReply = realRewriter;
+  settings.aiRepliesEnabled = false;
   await settings.save();
 
   console.log('\n-- test mode --');

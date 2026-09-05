@@ -10,6 +10,7 @@ const contactRoutes = require('./routes/contacts');
 const memberRoutes = require('./routes/members');
 const logRoutes = require('./routes/logs');
 const settingsRoutes = require('./routes/settings');
+const aiCredentialRoutes = require('./routes/ai-credentials');
 const doorRoutes = require('./routes/doors');
 const messageRoutes = require('./routes/messages');
 const pushRoutes = require('./routes/push');
@@ -43,6 +44,7 @@ function createApp() {
   app.use('/api/members', memberRoutes);
   app.use('/api/logs', logRoutes);
   app.use('/api/settings', settingsRoutes);
+  app.use('/api/ai-credentials', aiCredentialRoutes);
   app.use('/api/doors', doorRoutes);
   app.use('/api/messages', messageRoutes);
   app.use('/api/push', pushRoutes);

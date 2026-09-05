@@ -24,9 +24,15 @@ const EDITABLE = [
   'commandKeywords',
   'defaultDoor',
   'replyMode',
+  'aiProvider',
+  'aiRepliesEnabled',
+  'aiNaturalLanguageEnabled',
+  'aiGifRepliesEnabled',
+  'aiGifChancePct',
   'maxMessageAgeSec',
   'rateLimitPerUserPerMin',
   'rateLimitGlobalPerMin',
+  'doorRequestCooldownMinutes',
   'relayPulseMs',
   'defaultCountryCode',
   'adminAlertPhone',
@@ -76,6 +82,24 @@ router.patch('/', async (req, res) => {
         return res.status(400).json({ ok: false, error: 'need at least one keyword' });
       }
       settings.commandKeywords = keywords;
+      continue;
+    }
+
+    if (field === 'doorRequestCooldownMinutes') {
+      const minutes = Number(body[field]);
+      if (!Number.isFinite(minutes) || minutes < 0 || minutes > 60) {
+        return res.status(400).json({ ok: false, error: 'cooldown must be between 0 and 60 minutes' });
+      }
+      settings.doorRequestCooldownMinutes = minutes;
+      continue;
+    }
+
+    if (field === 'aiGifChancePct') {
+      const chance = Number(body[field]);
+      if (!Number.isFinite(chance) || chance < 0 || chance > 30) {
+        return res.status(400).json({ ok: false, error: 'GIF chance must be between 0 and 30%' });
+      }
+      settings.aiGifChancePct = chance;
       continue;
     }
 

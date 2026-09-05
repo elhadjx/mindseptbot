@@ -38,6 +38,9 @@ function assertConfigured() {
 
 const isProd = process.env.NODE_ENV === 'production';
 const doorProvider = process.env.DOOR_PROVIDER || 'tuya';
+const aiProvider = ['openai', 'gemini'].includes(process.env.AI_PROVIDER)
+  ? process.env.AI_PROVIDER
+  : 'openai';
 
 const config = {
   isProd,
@@ -92,6 +95,26 @@ const config = {
     claimTimeoutMs: Number(process.env.BRIDGE_CLAIM_TIMEOUT_MS) || 5000,
     resultTimeoutMs: Number(process.env.BRIDGE_RESULT_TIMEOUT_MS) || 30000,
     pollWaitMs: Number(process.env.BRIDGE_POLL_WAIT_MS) || 20000,
+  },
+
+  // Optional: AI never authorizes a person or opens a door. It is only used
+  // after the normal whitelist checks to classify conservative natural-
+  // language requests, and after an outcome exists to vary group replies.
+  // Keeping the key optional means `/open` and the shipped replies continue
+  // to work when AI is disabled or unavailable.
+  ai: {
+    provider: aiProvider,
+    apiKey: process.env.OPENAI_API_KEY || null,
+    model: process.env.OPENAI_MODEL || process.env.AI_MODEL || 'gpt-4o-mini',
+    baseUrl: (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, ''),
+    geminiApiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || null,
+    // Cheap, low-latency default for two tiny classification/generation jobs.
+    geminiModel: process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite',
+    geminiBaseUrl: (process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta').replace(
+      /\/$/,
+      ''
+    ),
+    timeoutMs: Math.min(5000, Math.max(250, Number(process.env.AI_TIMEOUT_MS) || 1500)),
   },
 
   doors: {

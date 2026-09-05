@@ -74,6 +74,15 @@ const settingsSchema = new mongoose.Schema(
     replyMode: { type: String, enum: ['react', 'text', 'both'], default: 'react' },
     replies: { type: repliesSchema, default: () => defaultReplies() },
 
+    // AI remains a presentation/helper layer. Natural-language detection is
+    // deliberately off until an admin enables it; explicit commands keep
+    // working without an API key. GIFs are limited to successful outcomes.
+    aiProvider: { type: String, enum: ['openai', 'gemini'], default: config.ai.provider },
+    aiRepliesEnabled: { type: Boolean, default: false },
+    aiNaturalLanguageEnabled: { type: Boolean, default: false },
+    aiGifRepliesEnabled: { type: Boolean, default: true },
+    aiGifChancePct: { type: Number, default: 15, min: 0, max: 30 },
+
     // Test mode: run the whole pipeline - scope, whitelist, rate limits, audit
     // log - but never send the door command. For trying the bot out without
     // opening a real door onto the street.
@@ -85,6 +94,11 @@ const settingsSchema = new mongoose.Schema(
 
     rateLimitPerUserPerMin: { type: Number, default: 3 },
     rateLimitGlobalPerMin: { type: Number, default: 10 },
+
+    // Once one recognized request is accepted into the pipeline, ignore more
+    // door-like messages from that member in that group for this many minutes.
+    // This is separate from the burst limits above and defaults to two minutes.
+    doorRequestCooldownMinutes: { type: Number, default: 2, min: 0, max: 60 },
 
     relayPulseMs: { type: Number, default: config.doors.relayPulseMs },
 

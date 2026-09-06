@@ -27,6 +27,23 @@ let onMessageHandler = null;
 let reconnectAttempt = 0;
 let reconnectTimer = null;
 let stopped = false;
+let initializationPromise = null;
+let logoutPromise = null;
+const retiredClients = new WeakSet();
+
+function isActiveClient(instance) {
+  return Boolean(instance) && !stopped && client === instance && !retiredClients.has(instance);
+}
+
+async function destroyClient(instance) {
+  retiredClients.add(instance);
+  // destroy() closes Chromium and stops RemoteAuth backups without unlinking
+  // the account. logout()/disconnect() would delete the session from Mongo.
+  await instance.destroy();
+  // Keep the reference if cleanup fails: the next attempt must finish closing
+  // this browser before RemoteAuth extracts into the same profile directory.
+  if (client === instance) client = null;
+}
 
 function getState() {
   return { ...state };
@@ -43,7 +60,7 @@ function getClient() {
 
 /** The client can accept commands only once WhatsApp reports it ready. */
 function isReady() {
-  return state.status === 'ready';
+  return state.status === 'ready' && isActiveClient(client);
 }
 
 /**
@@ -53,7 +70,8 @@ function isReady() {
  * is why a single blip turned into a permanent "waiting for scan".)
  */
 function scheduleReconnect() {
-  if (reconnectTimer || stopped) return;
+  // An in-flight startup owns cleanup and schedules its retry when it settles.
+  if (reconnectTimer || stopped || initializationPromise || logoutPromise) return;
   // 5s, 10s, 20s, 40s ... capped at 5 minutes.
   const delay = Math.min(5000 * 2 ** reconnectAttempt, 300000);
   reconnectAttempt += 1;
@@ -63,8 +81,7 @@ function scheduleReconnect() {
     try {
       await buildAndInitialize();
     } catch (err) {
-      console.error('[wa] reconnect failed:', err.message);
-      scheduleReconnect();
+      console.error('[wa] reconnect failed:', err?.message || String(err));
     }
   }, delay);
 }
@@ -103,22 +120,27 @@ function buildClient() {
 
 function wireEvents(instance) {
   instance.on(Events.QR_RECEIVED, async (qr) => {
+    if (!isActiveClient(instance)) return;
     const qrDataUrl = await QRCode.toDataURL(qr, { margin: 1, width: 320 });
+    if (!isActiveClient(instance)) return;
     setState({ status: 'qr', qrDataUrl, me: null, sessionBackedUp: false, lastError: null });
     console.log('[wa] QR received - scan it from the admin panel (Connection tab)');
   });
 
   instance.on(Events.AUTHENTICATED, () => {
+    if (!isActiveClient(instance)) return;
     setState({ status: 'authenticated', qrDataUrl: null, lastError: null });
     console.log('[wa] authenticated');
   });
 
   instance.on(Events.AUTHENTICATION_FAILURE, (message) => {
+    if (!isActiveClient(instance)) return;
     setState({ status: 'auth_failure', qrDataUrl: null, lastError: String(message) });
     console.error('[wa] auth failure:', message);
   });
 
   instance.on(Events.READY, () => {
+    if (!isActiveClient(instance)) return;
     reconnectAttempt = 0;
     setState({
       status: 'ready',
@@ -145,14 +167,16 @@ function wireEvents(instance) {
   });
 
   instance.on(Events.REMOTE_SESSION_SAVED, () => {
+    if (!isActiveClient(instance)) return;
     setState({ lastSessionSavedAt: new Date().toISOString(), sessionBackedUp: true });
     console.log('[wa] remote session saved');
   });
 
   instance.on(Events.DISCONNECTED, (reason) => {
-    // Anything that reaches here has already had its stored session deleted by
-    // RemoteAuth.disconnect(), so the next start will need a fresh QR. Log the
-    // reason plainly - it is the only clue as to why.
+    if (!isActiveClient(instance)) return;
+    retiredClients.add(instance);
+    // The library clears RemoteAuth on a real disconnect (for LOGOUT, just
+    // after emitting this event). Startup exceptions are handled separately.
     const isLogout = String(reason) === 'LOGOUT';
     setState({
       status: 'disconnected',
@@ -168,6 +192,7 @@ function wireEvents(instance) {
   });
 
   instance.on(Events.MESSAGE_RECEIVED, (msg) => {
+    if (!isActiveClient(instance)) return;
     // The Messages tab wants every message live, independent of whether it
     // turns out to be a door command - never let that emit block or fail the
     // command pipeline below.
@@ -186,6 +211,7 @@ function wireEvents(instance) {
   // so a message sent from the phone itself (or another linked session) needs
   // this separate event to reach the panel live.
   instance.on(Events.MESSAGE_CREATE, (msg) => {
+    if (!isActiveClient(instance)) return;
     if (!msg.fromMe) return;
     try {
       bus.emit(EVENTS.WA_MESSAGE, { chatId: chatIdFor(msg), message: mapMessage(msg) });
@@ -195,11 +221,57 @@ function wireEvents(instance) {
   });
 }
 
-async function buildAndInitialize() {
-  client = buildClient();
-  wireEvents(client);
-  await client.initialize();
-  return client;
+async function initializeClient() {
+  try {
+    if (client) await destroyClient(client);
+    if (stopped) return null;
+
+    setState({ status: 'starting', qrDataUrl: null, me: null });
+    const instance = buildClient();
+    client = instance;
+    wireEvents(instance);
+    await instance.initialize();
+
+    // A disconnect or shutdown can arrive while initialize() is awaiting the
+    // browser. Retire it even if initialize() subsequently resolves normally.
+    if (!isActiveClient(instance)) {
+      // Explicit logout owns its cleanup until it has finished unlinking.
+      if (!logoutPromise) await destroyClient(instance);
+      return null;
+    }
+    return instance;
+  } catch (err) {
+    if (!stopped && !logoutPromise) {
+      setState({
+        status: 'disconnected',
+        qrDataUrl: null,
+        me: null,
+        lastError: err?.message || String(err),
+      });
+    }
+    if (client && !retiredClients.has(client)) {
+      await destroyClient(client).catch((cleanupError) => {
+        console.warn('[wa] client cleanup failed:', cleanupError?.message || String(cleanupError));
+      });
+    }
+    throw err;
+  }
+}
+
+function buildAndInitialize() {
+  if (stopped) return Promise.resolve(null);
+  if (initializationPromise) return initializationPromise;
+  if (logoutPromise) return logoutPromise.then(() => buildAndInitialize());
+  if (client && !retiredClients.has(client)) return Promise.resolve(client);
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+
+  initializationPromise = initializeClient().finally(() => {
+    initializationPromise = null;
+    // Covers initial startup errors as well as later reconnect failures.
+    if (!client || retiredClients.has(client)) scheduleReconnect();
+  });
+  return initializationPromise;
 }
 
 /**
@@ -221,16 +293,28 @@ async function startWhatsApp(onMessage) {
 /**
  * Unlink the WhatsApp account and wipe the remote session, forcing a fresh QR.
  */
-async function logoutWhatsApp() {
-  if (!client) return;
-  try {
-    await client.logout();
-  } catch (err) {
-    console.warn('[wa] logout failed, destroying client instead:', err.message);
-    await client.destroy().catch(() => {});
-  }
-  setState({ status: 'disconnected', qrDataUrl: null, me: null, sessionBackedUp: false });
-  scheduleReconnect();
+function logoutWhatsApp() {
+  if (logoutPromise) return logoutPromise;
+  const instance = client;
+  if (!instance || retiredClients.has(instance)) return Promise.resolve();
+  retiredClients.add(instance);
+  logoutPromise = (async () => {
+    try {
+      await instance.logout();
+    } catch (err) {
+      console.warn('[wa] logout failed, destroying client instead:', err?.message || String(err));
+    }
+    await destroyClient(instance).catch((err) => {
+      console.warn('[wa] client cleanup failed:', err?.message || String(err));
+    });
+    if (!stopped) {
+      setState({ status: 'disconnected', qrDataUrl: null, me: null, sessionBackedUp: false });
+    }
+  })().finally(() => {
+    logoutPromise = null;
+    scheduleReconnect();
+  });
+  return logoutPromise;
 }
 
 /** Stop reconnecting - used on shutdown so we don't fight a closing process. */

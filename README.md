@@ -618,9 +618,9 @@ the image installs Debian's `chromium` for it.
   Rotating it invalidates panel sessions and makes dashboard-stored AI keys
   unreadable until an admin replaces them.
 
-## Optional AI group replies and door requests
+## Optional AI replies and door requests
 
-Open **Settings → AI in group chats**, choose OpenAI or Google Gemini, paste its
+Open **Settings → AI replies and requests**, choose OpenAI or Google Gemini, paste its
 API key, enter the current admin password, and select **Save key**. Use **Test**
 to verify the saved credential, then enable either AI feature and use the page's
 main **Save settings** button. Both features default off. The model never
@@ -633,7 +633,9 @@ authorizes a member, selects a door result, or calls the relay:
   local phrase filter runs before the API call; quoted, forwarded, negated and
   ambiguous messages do nothing. Model uncertainty or failure also does
   nothing.
-- Varied replies are generated only after code has decided the outcome. The
+- Varied replies work for whitelisted members in configured groups and enabled
+  private conversations, only after code has decided the outcome. Unlisted DM
+  senders remain silent and their messages are not sent to AI. The
   fixed configured reply is used on timeout, invalid output, unsafe wording or
   moderation failure. GIF-only replies are drawn from three original bundled
   clips and are permitted only for successful real opens.

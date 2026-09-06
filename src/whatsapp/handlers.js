@@ -51,7 +51,11 @@ async function respond(msg, settings, outcome, vars = {}, context = {}) {
   if (!((mode === 'text' || mode === 'both') && text)) return;
 
   let generated = null;
-  if (settings.aiRepliesEnabled && context.scope === 'group' && context.authorized) {
+  if (
+    settings.aiRepliesEnabled &&
+    (context.scope === 'group' || context.scope === 'dm') &&
+    context.authorized
+  ) {
     generated = await doorAI.rewriteReply({
       outcome,
       canonicalReply: text,

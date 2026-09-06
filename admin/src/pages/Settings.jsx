@@ -432,7 +432,7 @@ export default function Settings({
       </Card>
 
       <Card
-        title="AI in group chats"
+        title="AI replies and requests"
         hint="Optional helpers for natural requests and less repetitive replies. Authorization, cooldowns and the door result always stay in code."
       >
         <div className="stack">
@@ -567,7 +567,8 @@ export default function Settings({
             <div>
               <div style={{ fontWeight: 600 }}>Vary successful and error replies</div>
               <div className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
-                Group replies can be short and playful, but never target a person or joke about
+                Replies to whitelisted members in groups and enabled private conversations can
+                be short and playful, but never target a person or joke about
                 sex, bodies, identity, health, politics, money, violence, drugs or profanity. An
                 unsafe or unavailable AI reply is replaced by the fixed wording below.
               </div>

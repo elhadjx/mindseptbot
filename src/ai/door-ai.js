@@ -148,7 +148,7 @@ class DoorAI {
       const result = await client.structured({
         name: 'workplace_reply',
         instructions: [
-          'Rewrite a decided WhatsApp door-bot reply for a friendly coworking-space group.',
+          'Rewrite a decided WhatsApp door-bot reply to a coworking-space member, in a group or private conversation.',
           'The canonical outcome is immutable: never change success into failure, failure into success, test mode into a real open, or add operational facts.',
           'Use one short line in the message language, maximum 180 characters. The tone may be lightly playful or include a harmless door/relay/bot/coffee/weather/coworking/mission joke.',
           'Never shame or insult anyone. Never joke about sex, romance, bodies, appearance, gender, age, race, nationality, religion, disability, health, politics, money, violence, drugs, or profanity.',

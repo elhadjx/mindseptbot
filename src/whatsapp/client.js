@@ -1,7 +1,8 @@
-const { Client, RemoteAuth, Events } = require('whatsapp-web.js');
+const { RemoteAuth, Events } = require('whatsapp-web.js');
 const QRCode = require('qrcode');
 
 const { MongoSessionStore } = require('./mongo-session-store');
+const { StartupClient } = require('./startup-client');
 
 const { config } = require('../config');
 const { mongoose } = require('../db/mongo');
@@ -35,8 +36,13 @@ function isActiveClient(instance) {
   return Boolean(instance) && !stopped && client === instance && !retiredClients.has(instance);
 }
 
-async function destroyClient(instance) {
+function retireClient(instance) {
   retiredClients.add(instance);
+  instance.cancelStartup();
+}
+
+async function destroyClient(instance) {
+  retireClient(instance);
   // destroy() closes Chromium and stops RemoteAuth backups without unlinking
   // the account. logout()/disconnect() would delete the session from Mongo.
   await instance.destroy();
@@ -91,7 +97,7 @@ function buildClient() {
   // zip path from it, since RemoteAuth only passes a path to extract().
   const store = new MongoSessionStore({ mongoose, dataPath: config.whatsapp.dataPath });
 
-  return new Client({
+  return new StartupClient({
     authStrategy: new RemoteAuth({
       store,
       clientId: config.whatsapp.clientId,
@@ -174,7 +180,7 @@ function wireEvents(instance) {
 
   instance.on(Events.DISCONNECTED, (reason) => {
     if (!isActiveClient(instance)) return;
-    retiredClients.add(instance);
+    retireClient(instance);
     // The library clears RemoteAuth on a real disconnect (for LOGOUT, just
     // after emitting this event). Startup exceptions are handled separately.
     const isLogout = String(reason) === 'LOGOUT';
@@ -297,7 +303,7 @@ function logoutWhatsApp() {
   if (logoutPromise) return logoutPromise;
   const instance = client;
   if (!instance || retiredClients.has(instance)) return Promise.resolve();
-  retiredClients.add(instance);
+  retireClient(instance);
   logoutPromise = (async () => {
     try {
       await instance.logout();
@@ -320,6 +326,7 @@ function logoutWhatsApp() {
 /** Stop reconnecting - used on shutdown so we don't fight a closing process. */
 function stopWhatsApp() {
   stopped = true;
+  client?.cancelStartup();
   if (reconnectTimer) clearTimeout(reconnectTimer);
   reconnectTimer = null;
 }

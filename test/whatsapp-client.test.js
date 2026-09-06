@@ -51,6 +51,7 @@ function harness(attempts = [], { toDataURL = async (qr) => `data:${qr}` } = {})
       this.logoutCalls = 0;
       this.closeCalls = 0;
       this.connected = false;
+      this.startupCancelled = false;
       instances.push(this);
     }
 
@@ -74,6 +75,10 @@ function harness(attempts = [], { toDataURL = async (qr) => `data:${qr}` } = {})
       await Client.prototype.destroy.call(this);
     }
 
+    cancelStartup() {
+      this.startupCancelled = true;
+    }
+
     async logout() {
       this.logoutCalls += 1;
       await this.behavior.logout?.(this);
@@ -85,6 +90,7 @@ function harness(attempts = [], { toDataURL = async (qr) => `data:${qr}` } = {})
 
   const dependencies = {
     'whatsapp-web.js': { Client: FakeClient, RemoteAuth, Events },
+    './startup-client': { StartupClient: FakeClient },
     qrcode: { toDataURL },
     './mongo-session-store': { MongoSessionStore: Store },
     '../config': { config: { whatsapp: {
@@ -285,6 +291,7 @@ for (const outcome of ['resolve', 'reject']) {
     const result = outcome === 'reject' ? assert.rejects(starting) : starting;
     await flush();
     h.api.stopWhatsApp();
+    assert.equal(h.instances[0].startupCancelled, true);
     const stateCount = h.states.length;
     h.instances[0].emit(Events.READY);
     h.instances[0].emit(Events.DISCONNECTED, 'LOGOUT');

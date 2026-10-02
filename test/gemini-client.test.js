@@ -67,6 +67,22 @@ async function main() {
     (err) => /\(401\)/.test(err.message) && !err.message.includes('do-not-leak-this-key')
   );
 
+  for (const phase of ['fetch', 'body']) {
+    const slowClient = new GeminiClient({
+      apiKey: 'fixture-key',
+      timeoutMs: 250,
+      fetchImpl: async (_url, { signal }) => {
+        const untilAbort = () => new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => {
+            reject(Object.assign(new Error('fixture abort'), { name: 'AbortError' }));
+          }, { once: true });
+        });
+        return phase === 'fetch' ? untilAbort() : { ok: true, json: untilAbort };
+      },
+    });
+    await assert.rejects(() => slowClient.testConnection(), /Gemini request timed out/);
+  }
+
   console.log('Gemini client tests passed');
 }
 

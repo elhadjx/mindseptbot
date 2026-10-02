@@ -69,6 +69,22 @@ async function main() {
     categories: {},
   });
 
+  for (const phase of ['fetch', 'body']) {
+    const slowClient = new OpenAIClient({
+      apiKey: 'fixture-key',
+      timeoutMs: 250,
+      fetchImpl: async (_url, { signal }) => {
+        const untilAbort = () => new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => {
+            reject(Object.assign(new Error('fixture abort'), { name: 'AbortError' }));
+          }, { once: true });
+        });
+        return phase === 'fetch' ? untilAbort() : { ok: true, json: untilAbort };
+      },
+    });
+    await assert.rejects(() => slowClient.testConnection(), /OpenAI request timed out/);
+  }
+
   console.log('OpenAI client tests passed');
 }
 

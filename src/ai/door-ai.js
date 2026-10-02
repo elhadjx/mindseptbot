@@ -3,6 +3,8 @@ const { GIF_IDS } = require('../whatsapp/gifs');
 
 const SAFE_GIF_OUTCOMES = new Set(['granted', 'confirm_opened']);
 const RECENT_LIMIT = 5;
+const REPLY_TIMEOUT_MS = 4000;
+const REPLY_ATTEMPTS = 3;
 
 // A message must already look like a direct, present-tense door request before
 // any text leaves the server. The model is a conservative second opinion, not
@@ -25,8 +27,7 @@ const NEGATION_PATTERNS = [
   /(?:لا|ما)\s*(?:تفتح|تحل|افتح|حل)/u,
 ];
 
-// If any of these appears in generated text, use the fixed reply. This local
-// filter complements moderation and intentionally errs toward being boring.
+// Reject these before moderation and request another reply.
 const UNSAFE_TEXT = [
   /\b(?:sex|sexy|porn|nude|naked|penis|vagina|boobs?|romance|romantic|kiss|date|amour)\b/iu,
   /\b(?:idiot|stupid|dumb|loser|ugly|fat|lazy|moron|retard|shame)\b/iu,
@@ -84,8 +85,8 @@ class DoorAI {
     this.recentGifs = [];
   }
 
-  async resolveClient(provider) {
-    return this.client || this.clientFactory(provider);
+  async resolveClient(provider, options) {
+    return this.client || this.clientFactory(provider, options);
   }
 
   async classifyDoorIntent(message, { provider = 'openai' } = {}) {
@@ -142,77 +143,85 @@ class DoorAI {
     const recent = this.recentReplies.get(outcome) || [];
     const allowedModes = mayUseGif ? ['text', 'gif'] : ['text'];
 
-    try {
-      const client = await this.resolveClient(provider);
-      if (!client?.enabled) return null;
-      const result = await client.structured({
-        name: 'workplace_reply',
-        instructions: [
-          'Rewrite a decided WhatsApp door-bot reply to a coworking-space member, in a group or private conversation.',
-          'The canonical outcome is immutable: never change success into failure, failure into success, test mode into a real open, or add operational facts.',
-          'Use one short line in the message language, maximum 180 characters. The tone may be lightly playful or include a harmless door/relay/bot/coffee/weather/coworking/mission joke.',
-          'Never shame or insult anyone. Never joke about sex, romance, bodies, appearance, gender, age, race, nationality, religion, disability, health, politics, money, violence, drugs, or profanity.',
-          'Use the first name only as a positive greeting, never as the target of a joke.',
-          mayUseGif
-            ? `You may instead choose mode gif with exactly one approved gifId: ${GIF_IDS.join(', ')}. GIF mode must have an empty reply.`
-            : 'You must choose mode text, with an empty gifId.',
-          'Do not include links, usernames, phone numbers, or quote the sender.',
-        ].join(' '),
-        input: JSON.stringify({
-          outcome,
-          canonicalReply: String(canonicalReply).slice(0, 300),
-          senderFirstName: firstName(name),
-          senderMessage: String(message || '').slice(0, 300),
-          avoidRecentReplies: recent,
-          avoidRecentGifIds: this.recentGifs,
-        }),
-        maxOutputTokens: 140,
-        schema: {
-          type: 'object',
-          additionalProperties: false,
-          properties: {
-            mode: { type: 'string', enum: allowedModes },
-            reply: { type: 'string' },
-            gifId: { type: 'string', enum: mayUseGif ? ['', ...GIF_IDS] : [''] },
-          },
-          required: ['mode', 'reply', 'gifId'],
-        },
-      });
-
-      if (result?.mode === 'gif') {
-        if (
-          !mayUseGif ||
-          result.reply !== '' ||
-          !GIF_IDS.includes(result.gifId) ||
-          this.recentGifs.includes(result.gifId)
-        ) {
+    for (let attempt = 1; attempt <= REPLY_ATTEMPTS; attempt++) {
+      let stage = 'generation';
+      try {
+        const client = await this.resolveClient(provider, { timeoutMs: REPLY_TIMEOUT_MS });
+        if (!client?.enabled) {
+          console.warn('[ai] reply unavailable: not configured');
           return null;
         }
-        this.rememberGif(result.gifId);
-        return { mode: 'gif', gifId: result.gifId };
+        const result = await client.structured({
+          name: 'workplace_reply',
+          instructions: [
+            'Rewrite a decided WhatsApp door-bot reply to a coworking-space member, in a group or private conversation.',
+            'The canonical outcome is immutable: never change success into failure, failure into success, test mode into a real open, or add operational facts.',
+            'Use one short line in the message language, maximum 180 characters. The tone may be lightly playful or include a harmless door/relay/bot/coffee/weather/coworking/mission joke.',
+            'Never shame or insult anyone. Never joke about sex, romance, bodies, appearance, gender, age, race, nationality, religion, disability, health, politics, money, violence, drugs, or profanity.',
+            'Use the first name only as a positive greeting, never as the target of a joke.',
+            'Write fresh wording. Do not copy the canonical reply or reuse any avoidRecentReplies.',
+            mayUseGif
+              ? `You may instead choose mode gif with exactly one approved gifId: ${GIF_IDS.join(', ')}. GIF mode must have an empty reply.`
+              : 'You must choose mode text, with an empty gifId.',
+            'Do not include links, usernames, phone numbers, or quote the sender.',
+          ].join(' '),
+          input: JSON.stringify({
+            outcome,
+            canonicalReply: String(canonicalReply).slice(0, 300),
+            senderFirstName: firstName(name),
+            senderMessage: String(message || '').slice(0, 300),
+            avoidRecentReplies: recent,
+            avoidRecentGifIds: this.recentGifs,
+          }),
+          maxOutputTokens: 140,
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              mode: { type: 'string', enum: allowedModes },
+              reply: { type: 'string' },
+              gifId: { type: 'string', enum: mayUseGif ? ['', ...GIF_IDS] : [''] },
+            },
+            required: ['mode', 'reply', 'gifId'],
+          },
+        });
+
+        if (result?.mode === 'gif') {
+          if (
+            !mayUseGif ||
+            result.reply !== '' ||
+            !GIF_IDS.includes(result.gifId) ||
+            this.recentGifs.includes(result.gifId)
+          ) {
+            throw new Error('invalid GIF output');
+          }
+          this.rememberGif(result.gifId);
+          return { mode: 'gif', gifId: result.gifId };
+        }
+
+        stage = 'validation';
+        const reply = String(result?.reply || '').trim();
+        if (result?.mode !== 'text' || result.gifId !== '') {
+          throw new Error('invalid text output');
+        }
+        if (recent.includes(reply) || reply === String(canonicalReply).trim()) {
+          throw new Error('repeated reply');
+        }
+        if (!isWorkplaceSafeText(reply, name)) {
+          throw new Error('unsafe wording');
+        }
+
+        stage = 'moderation';
+        const moderation = await client.moderate(reply);
+        if (moderation?.flagged !== false) throw new Error('moderation rejected');
+
+        this.rememberReply(outcome, reply);
+        return { mode: 'text', reply };
+      } catch (err) {
+        console.warn(`[ai] reply attempt ${attempt}/${REPLY_ATTEMPTS} ${stage} unavailable: ${safeErrorKind(err)}`);
       }
-
-      const reply = String(result?.reply || '').trim();
-      if (
-        result?.mode !== 'text' ||
-        result.gifId !== '' ||
-        recent.includes(reply) ||
-        !isWorkplaceSafeText(reply, name)
-      ) {
-        return null;
-      }
-
-      // A moderation outage also falls back. For a workplace bot, a fixed line
-      // is a much better failure mode than sending unreviewed generated text.
-      const moderation = await client.moderate(reply);
-      if (moderation.flagged) return null;
-
-      this.rememberReply(outcome, reply);
-      return { mode: 'text', reply };
-    } catch (err) {
-      console.warn(`[ai] reply unavailable: ${safeErrorKind(err)}`);
-      return null;
     }
+    return null;
   }
 
   rememberReply(outcome, reply) {
@@ -231,6 +240,9 @@ function firstName(name) {
 
 function safeErrorKind(err) {
   const message = String(err?.message || 'request failed');
+  if (['invalid GIF output', 'invalid text output', 'repeated reply', 'unsafe wording', 'moderation rejected'].includes(message)) {
+    return message;
+  }
   if (/timed out/i.test(message)) return 'timeout';
   if (/\(\d{3}\)/.test(message)) return message.match(/\(\d{3}\)/)[0];
   if (/not configured/i.test(message)) return 'not configured';

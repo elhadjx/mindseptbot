@@ -1,9 +1,8 @@
 /**
  * Small Responses API client built on Node's fetch.
  *
- * There is intentionally no retry: a slow stylistic reply is worse than the
- * deterministic fallback, and a late intent classification must never open a
- * door after the sender has stopped expecting it.
+ * DoorAI retries reply generation, while intent classification makes only one
+ * attempt so a late request never opens a door unexpectedly.
  */
 class OpenAIClient {
   constructor({ apiKey, model, baseUrl, timeoutMs, fetchImpl = global.fetch } = {}) {
@@ -38,7 +37,7 @@ class OpenAIClient {
         // Do not echo response bodies: they can repeat submitted message text.
         throw new Error(`OpenAI request failed (${response.status})`);
       }
-      return response.json();
+      return await response.json();
     } catch (err) {
       if (err?.name === 'AbortError') throw new Error('OpenAI request timed out');
       throw err;

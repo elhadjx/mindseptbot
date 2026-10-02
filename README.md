@@ -636,11 +636,16 @@ authorizes a member, selects a door result, or calls the relay:
 - Varied replies work for whitelisted members in configured groups and enabled
   private conversations, only after code has decided the outcome. Unlisted DM
   senders remain silent and their messages are not sent to AI. The
-  fixed configured reply is used on timeout, invalid output, unsafe wording or
-  moderation failure. GIF-only replies are drawn from three original bundled
+  reply attempt is retried up to twice on timeout, invalid output, repeated text,
+  unsafe wording or moderation failure. Successful opens never fall back to the
+  configured welcome when AI replies are enabled; they receive only the configured
+  reaction if all attempts fail. Errors, test mode and confirmation questions keep
+  their fixed fallback. GIF-only replies are drawn from three original bundled
   clips and are permitted only for successful real opens.
-- Requests use Structured Outputs, `store: false`, a short timeout and no
-  retry. Only the current candidate message, first/display name, canonical
+- Requests use Structured Outputs and `store: false`. Reply generation and
+  moderation each have a 4-second timeout, with at most three reply attempts.
+  Intent classification keeps its short timeout and makes one attempt.
+  Only the current candidate message, first/display name, canonical
   reply and decided outcome are sent — never a phone/JID, chat history, access
   token or raw provider error.
 

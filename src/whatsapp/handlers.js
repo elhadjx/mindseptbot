@@ -51,11 +51,13 @@ async function respond(msg, settings, outcome, vars = {}, context = {}) {
   if (!((mode === 'text' || mode === 'both') && text)) return;
 
   let generated = null;
-  if (
+  const useAI = Boolean(
     settings.aiRepliesEnabled &&
     (context.scope === 'group' || context.scope === 'dm') &&
     context.authorized
-  ) {
+  );
+  const aiOnlySuccess = useAI && ['granted', 'confirm_opened'].includes(outcome);
+  if (useAI) {
     generated = await doorAI.rewriteReply({
       outcome,
       canonicalReply: text,
@@ -67,6 +69,19 @@ async function respond(msg, settings, outcome, vars = {}, context = {}) {
     });
   }
 
+  if (aiOnlySuccess && !generated) {
+    // A successful open stays acknowledged even in text-only mode, without
+    // replacing an unavailable AI reply with the same canned welcome.
+    if (mode === 'text' && emoji) {
+      try {
+        await msg.react(emoji);
+      } catch (err) {
+        console.warn('[wa] could not react to message:', err.message);
+      }
+    }
+    return;
+  }
+
   try {
     if (generated?.mode === 'gif') {
       await sendGifReply(msg, generated.gifId);
@@ -75,9 +90,14 @@ async function respond(msg, settings, outcome, vars = {}, context = {}) {
     await msg.reply(generated?.reply || text);
   } catch (err) {
     console.warn('[wa] could not send generated response:', err.message);
-    // A missing/corrupt bundled clip should not leave a member with only a
-    // mysterious reaction. Make one best-effort attempt with the fixed text.
-    if (generated?.mode === 'gif') {
+    // A failed success GIF must not bring back the canned welcome either.
+    if (generated?.mode === 'gif' && aiOnlySuccess && mode === 'text' && emoji) {
+      try {
+        await msg.react(emoji);
+      } catch (reactionErr) {
+        console.warn('[wa] could not react to message:', reactionErr.message);
+      }
+    } else if (generated?.mode === 'gif' && !aiOnlySuccess) {
       try {
         await msg.reply(text);
       } catch (fallbackErr) {

@@ -8,7 +8,7 @@ const { renderReply, defaultReplies } = require('../src/whatsapp/replies');
 // Exercise the real handler without opening a database, contacting AI, sending
 // WhatsApp messages, or operating a relay.
 function harness({ scope = 'dm', authorized = true, generated = 'Welcome, the door is open.',
-  settings: overrides = {}, doorError = null } = {}) {
+  settings: overrides = {}, doorError = null, gifError = null, doorResult = {} } = {}) {
   const calls = { ai: [], doors: [], audit: [], order: [] };
   const settings = {
     chatScope: () => scope,
@@ -41,21 +41,21 @@ function harness({ scope = 'dm', authorized = true, generated = 'Welcome, the do
         calls.doors.push(args);
         calls.order.push('door');
         if (doorError) throw doorError;
-        return { simulated: false, unconfirmed: false };
+        return { simulated: false, unconfirmed: false, ...doorResult };
       },
     },
-    '../doors/offline-alert': { reportDoorOnline() {} },
+    '../doors/offline-alert': { reportDoorOnline() {}, reportDoorOffline: async () => {} },
     '../events': { bus: { emit() {} }, EVENTS: { DOOR_OPENED: 'opened' } },
     './command-router': { parseCommand: () => ({ door: 'front', raw: '/open' }) },
-    './confirmations': {},
+    './confirmations': { rememberQuestion() {} },
     './identity': { identifyMessageSender: async () => ({ waId: '123@c.us', name: 'Nadia' }) },
     './replies': { renderReply },
     '../ai/door-ai': { doorAI: { rewriteReply: async (input) => {
       calls.ai.push(input);
       calls.order.push('ai');
-      return generated === null ? null : { mode: 'text', reply: generated };
+      return typeof generated === 'string' ? { mode: 'text', reply: generated } : generated;
     } } },
-    './gif-replies': {},
+    './gif-replies': { sendGifReply: async () => { if (gifError) throw gifError; } },
     './rate-limiter': { take: () => ({ allowed: true }) },
     './request-cooldown': { remainingMs: () => 0, take: () => ({ allowed: true }) },
   };
@@ -105,12 +105,41 @@ test('unlisted group senders retain the fixed denial reply without calling AI', 
   assert.deepEqual(h.calls.doors, []);
 });
 
-test('DMs fall back to configured text when AI returns no usable reply', async () => {
-  const h = harness({ generated: null });
-  await h.run();
-  assert.equal(h.calls.ai.length, 1);
-  assert.deepEqual(h.msg.replies, [h.settings.replies.granted.text]);
-  assert.equal(h.calls.doors.length, 1);
+test('successful opens keep only the reaction when AI returns no usable reply', async () => {
+  for (const scope of ['dm', 'group']) {
+    for (const replyMode of ['text', 'both']) {
+      const h = harness({ scope, generated: null, settings: { replyMode } });
+      await h.run();
+      assert.equal(h.calls.ai.length, 1);
+      assert.deepEqual(h.msg.replies, []);
+      assert.deepEqual(h.msg.reactions, ['✅']);
+      assert.equal(h.calls.doors.length, 1);
+    }
+  }
+});
+
+test('failed success GIFs never send the canned welcome', async () => {
+  for (const replyMode of ['text', 'both']) {
+    const h = harness({ generated: { mode: 'gif', gifId: 'coffee_next' },
+      settings: { replyMode }, gifError: new Error('GIF unavailable') });
+    await h.run();
+    assert.deepEqual(h.msg.replies, []);
+    assert.deepEqual(h.msg.reactions, ['✅']);
+    assert.equal(h.calls.doors.length, 1);
+  }
+});
+
+test('errors and test mode retain factual fallback text when AI is unavailable', async () => {
+  for (const [options, outcome] of [
+    [{ doorError: new Error('relay failed') }, 'error'],
+    [{ doorResult: { simulated: true } }, 'simulated'],
+    [{ doorResult: { unconfirmed: true } }, 'granted_unconfirmed'],
+  ]) {
+    const h = harness({ ...options, generated: null });
+    await h.run();
+    assert.deepEqual(h.msg.replies, [renderReply(h.settings, outcome, { door: 'Front door' }).text]);
+    assert.equal(h.calls.doors.length, 1);
+  }
 });
 
 test('AI-disabled and reaction-only modes retain their behavior in DMs', async () => {

@@ -570,7 +570,9 @@ export default function Settings({
                 Replies to whitelisted members in groups and enabled private conversations can
                 be short and playful, but never target a person or joke about
                 sex, bodies, identity, health, politics, money, violence, drugs or profanity. An
-                unsafe or unavailable AI reply is replaced by the fixed wording below.
+                AI requests have a 4-second timeout with up to two retries. If AI remains
+                unavailable, successful opens receive only a reaction; errors and confirmation
+                questions use the fixed wording below.
               </div>
             </div>
             <Toggle

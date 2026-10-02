@@ -36,7 +36,7 @@ class GeminiClient {
         // the dashboard and logs, and cannot leak the credential.
         throw new Error(`Gemini request failed (${response.status})`);
       }
-      return response.json();
+      return await response.json();
     } catch (err) {
       if (err?.name === 'AbortError') throw new Error('Gemini request timed out');
       throw err;

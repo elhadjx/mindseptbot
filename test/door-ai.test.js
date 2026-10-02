@@ -7,21 +7,26 @@ const {
 } = require('../src/ai/door-ai');
 const { GIF_IDS, getGif } = require('../src/whatsapp/gifs');
 const { sendGifReply } = require('../src/whatsapp/gif-replies');
+const { createAIClient } = require('../src/ai/provider');
 
 function fakeClient(outputs, moderation = { flagged: false, categories: {} }) {
   const queue = [...outputs];
+  const moderationQueue = Array.isArray(moderation) ? [...moderation] : null;
   return {
     enabled: true,
     schemas: [],
     moderated: [],
     async structured(request) {
       this.schemas.push(request.schema);
-      return queue.shift();
+      const output = queue.shift();
+      if (output instanceof Error) throw output;
+      return output;
     },
     async moderate(text) {
       this.moderated.push(text);
-      if (moderation instanceof Error) throw moderation;
-      return moderation;
+      const result = moderationQueue ? moderationQueue.shift() : moderation;
+      if (result instanceof Error) throw result;
+      return result;
     },
   };
 }
@@ -120,16 +125,17 @@ async function main() {
   );
   assert.deepStrictEqual(errorClient.schemas[0].properties.mode.enum, ['text']);
 
-  const unsafeClient = fakeClient([{ mode: 'text', reply: 'Une blague stupide.', gifId: '' }]);
+  const unsafeClient = fakeClient(Array(3).fill({ mode: 'text', reply: 'Une blague stupide.', gifId: '' }));
   const unsafeAI = new DoorAI({ client: unsafeClient });
   assert.strictEqual(
     await unsafeAI.rewriteReply({ outcome: 'granted', canonicalReply: 'Ouvert', gifChancePct: 0 }),
     null
   );
   assert.strictEqual(unsafeClient.moderated.length, 0);
+  assert.strictEqual(unsafeClient.schemas.length, 3);
 
   const moderationDown = fakeClient(
-    [{ mode: 'text', reply: 'La porte est ouverte.', gifId: '' }],
+    Array(3).fill({ mode: 'text', reply: 'La porte est ouverte.', gifId: '' }),
     new Error('moderation unavailable')
   );
   assert.strictEqual(
@@ -140,6 +146,64 @@ async function main() {
     }),
     null
   );
+  assert.strictEqual(moderationDown.moderated.length, 3);
+
+  const safeReply = { mode: 'text', reply: 'Bienvenue, la porte est ouverte 🚪', gifId: '' };
+  const replyInput = { outcome: 'granted', canonicalReply: 'Ouvert 🚪', gifChancePct: 0 };
+  for (const failure of [new Error('request timed out'), { mode: 'broken' }]) {
+    for (const retries of [1, 2]) {
+      const client = fakeClient([...Array(retries).fill(failure), safeReply]);
+      assert.deepStrictEqual(await new DoorAI({ client }).rewriteReply(replyInput), {
+        mode: 'text', reply: safeReply.reply,
+      });
+      assert.strictEqual(client.schemas.length, retries + 1);
+      assert.strictEqual(client.moderated.length, 1);
+    }
+  }
+
+  const exhausted = fakeClient(Array(4).fill(new Error('request timed out')));
+  assert.strictEqual(await new DoorAI({ client: exhausted }).rewriteReply(replyInput), null);
+  assert.strictEqual(exhausted.schemas.length, 3, 'stop after exactly two retries');
+
+  const repeated = fakeClient([
+    { mode: 'text', reply: replyInput.canonicalReply, gifId: '' },
+    safeReply, safeReply,
+    { mode: 'text', reply: 'Accès ouvert, place au café ☕', gifId: '' },
+  ]);
+  const variedAI = new DoorAI({ client: repeated });
+  assert.strictEqual((await variedAI.rewriteReply(replyInput)).reply, safeReply.reply);
+  assert.strictEqual((await variedAI.rewriteReply(replyInput)).reply, 'Accès ouvert, place au café ☕');
+  assert.strictEqual(repeated.schemas.length, 4);
+  assert.strictEqual(repeated.moderated.length, 2, 'copies must not reach moderation');
+
+  for (const failure of [new Error('moderation unavailable'), { flagged: true }]) {
+    const client = fakeClient([safeReply, safeReply], [failure, { flagged: false }]);
+    assert.strictEqual((await new DoorAI({ client }).rewriteReply(replyInput)).reply, safeReply.reply);
+    assert.strictEqual(client.moderated.length, 2);
+  }
+
+  for (const provider of ['openai', 'gemini']) {
+    let configuredTimeout;
+    const ai = new DoorAI({ clientFactory: (selected, options) => {
+      assert.strictEqual(selected, provider);
+      const client = createAIClient(selected, 'fixture-key', options);
+      configuredTimeout = client.timeoutMs;
+      client.structured = async () => safeReply;
+      client.moderate = async () => ({ flagged: false });
+      return client;
+    } });
+    assert.strictEqual((await ai.rewriteReply({ ...replyInput, provider })).reply, safeReply.reply);
+    assert.strictEqual(configuredTimeout, 4000);
+  }
+
+  let missingKeyAttempts = 0;
+  const missingKey = new DoorAI({ clientFactory: () => { missingKeyAttempts++; return null; } });
+  assert.strictEqual(await missingKey.rewriteReply(replyInput), null);
+  assert.strictEqual(missingKeyAttempts, 1);
+
+  const failedIntent = fakeClient([new Error('request timed out')]);
+  assert.strictEqual(await new DoorAI({ client: failedIntent }).classifyDoorIntent('Open the door'), false);
+  assert.strictEqual(failedIntent.schemas.length, 1, 'intent classification is never retried');
 
   assert.strictEqual(GIF_IDS.length, 3);
   for (const id of GIF_IDS) {

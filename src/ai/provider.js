@@ -3,13 +3,13 @@ const AiCredentials = require('../db/models/AiCredentials');
 const { OpenAIClient } = require('./openai-client');
 const { GeminiClient } = require('./gemini-client');
 
-function createAIClient(provider, apiKey, { fetchImpl } = {}) {
+function createAIClient(provider, apiKey, { fetchImpl, timeoutMs = config.ai.timeoutMs } = {}) {
   if (provider === 'openai') {
     return new OpenAIClient({
       apiKey,
       model: config.ai.model,
       baseUrl: config.ai.baseUrl,
-      timeoutMs: config.ai.timeoutMs,
+      timeoutMs,
       fetchImpl,
     });
   }
@@ -18,16 +18,16 @@ function createAIClient(provider, apiKey, { fetchImpl } = {}) {
       apiKey,
       model: config.ai.geminiModel,
       baseUrl: config.ai.geminiBaseUrl,
-      timeoutMs: config.ai.timeoutMs,
+      timeoutMs,
       fetchImpl,
     });
   }
   return null;
 }
 
-async function getConfiguredAIClient(provider) {
+async function getConfiguredAIClient(provider, options) {
   const apiKey = await AiCredentials.resolveKey(provider);
-  return apiKey ? createAIClient(provider, apiKey) : null;
+  return apiKey ? createAIClient(provider, apiKey, options) : null;
 }
 
 module.exports = { createAIClient, getConfiguredAIClient };
